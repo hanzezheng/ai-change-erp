@@ -4,3 +4,10 @@ app:
     secret: test-jwt-hmac-secret-key-32bytes-min
   credential-encryption:
     key: test-credential-master-key-32b!!
+
+server:
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true

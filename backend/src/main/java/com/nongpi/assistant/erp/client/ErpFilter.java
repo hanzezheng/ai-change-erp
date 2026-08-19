@@ -23,6 +23,18 @@ public record ErpFilter(String field, String operator, Object value) {
         return new ErpFilter(field, ">", value);
     }
 
+    public static ErpFilter greaterOrEqual(String field, Object value) {
+        return new ErpFilter(field, ">=", value);
+    }
+
+    public static ErpFilter lessOrEqual(String field, Object value) {
+        return new ErpFilter(field, "<=", value);
+    }
+
+    public static ErpFilter notEq(String field, Object value) {
+        return new ErpFilter(field, "!=", value);
+    }
+
     public static ErpFilter isSet(String field) {
         return new ErpFilter(field, "is", "set");
     }

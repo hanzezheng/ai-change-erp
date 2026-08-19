@@ -3,6 +3,7 @@ package com.nongpi.assistant.product.service;
 import com.nongpi.assistant.common.error.BusinessErrorCode;
 import com.nongpi.assistant.common.error.BusinessException;
 import com.nongpi.assistant.erp.adapter.ItemErpAdapter;
+import com.nongpi.assistant.erp.adapter.SalesOrderErpAdapter;
 import com.nongpi.assistant.erp.connection.ErpConnection;
 import com.nongpi.assistant.erp.connection.ErpConnectionProvider;
 import com.nongpi.assistant.product.domain.AllowedUom;
@@ -21,12 +22,13 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 @DisplayName("商品单位校验")
 class ProductServiceUomTest {
 
     private static final ErpConnection CONNECTION = new ErpConnection(
-            "T001", "http://erp.test", "k", "s", "Standard Selling", null, null, null);
+            "T001", "http://erp.test", "k", "s", "Standard Selling", null, "农批测试", null, null);
 
     private ProductService productService;
     private Map<String, ProductVariant> catalog;
@@ -39,12 +41,12 @@ class ProductServiceUomTest {
                         List.of(), "箱",
                         List.of(new AllowedUom("箱", BigDecimal.ONE, new BigDecimal("68"), "CNY"),
                                 new AllowedUom("斤", new BigDecimal("20"), new BigDecimal("3.8"), "CNY")),
-                        new BigDecimal("68"), "箱", "CNY"),
+                        new BigDecimal("68"), "箱", "CNY", null),
                 // 非变体商品：productId 回落为自身 itemCode
                 "BANANA-FEN", new ProductVariant("BANANA-FEN", "BANANA-FEN", "香蕉粉蕉", null,
                         List.of(), "件",
                         List.of(new AllowedUom("件", BigDecimal.ONE, new BigDecimal("32"), "CNY")),
-                        new BigDecimal("32"), "件", "CNY"));
+                        new BigDecimal("32"), "件", "CNY", null));
 
         ItemErpAdapter adapter = new ItemErpAdapter() {
             @Override
@@ -59,7 +61,7 @@ class ProductServiceUomTest {
         };
         ErpConnectionProvider connectionProvider = tenant -> CONNECTION;
 
-        productService = new ProductService(adapter, connectionProvider, (tenant, itemCodes) -> Map.of());
+        productService = new ProductService(adapter, mock(SalesOrderErpAdapter.class), connectionProvider, (tenant, itemCodes) -> Map.of());
         TenantContextHolder.set(new TenantContext("T001", "徐州水果档口"));
     }
 

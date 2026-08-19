@@ -38,6 +38,7 @@ public class DatabaseErpConnectionProvider implements ErpConnectionProvider {
                 apiSecret,
                 entity.getSellingPriceList(),
                 entity.getDefaultWarehouse(),
+                entity.getDefaultCompany(),
                 Duration.ofMillis(entity.getConnectTimeoutMs()),
                 Duration.ofMillis(entity.getReadTimeoutMs())
         );

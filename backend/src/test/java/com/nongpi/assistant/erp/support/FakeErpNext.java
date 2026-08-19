@@ -1,5 +1,7 @@
 package com.nongpi.assistant.erp.support;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nongpi.assistant.erp.connection.ErpConnection;
 import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
@@ -17,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * 可控的 ERPNext 假服务。
@@ -42,14 +45,23 @@ public final class FakeErpNext implements AutoCloseable {
             "Item Variant Attribute",
             "Item Price",
             "Item Reorder",
-            "Bin"
+            "Bin",
+            "Sales Order",
+            "Sales Order Item",
+            "Payment Entry",
+            "Payment Entry Reference",
+            "Mode of Payment",
+            "Mode of Payment Account",
+            "Company"
     );
 
     private final MockWebServer server = new MockWebServer();
     private final Map<String, MockResponse> listResponses = new LinkedHashMap<>();
     private final Map<String, MockResponse> docResponses = new LinkedHashMap<>();
     private final List<RecordedRequest> requests = new ArrayList<>();
+    private final FakeErpWriteEngine writeEngine = new FakeErpWriteEngine();
     private MockResponse fallback;
+    private final Map<String, Integer> failNextLists = new LinkedHashMap<>();
 
     public FakeErpNext() {
         server.setDispatcher(new Dispatcher() {
@@ -57,12 +69,23 @@ public final class FakeErpNext implements AutoCloseable {
             public MockResponse dispatch(RecordedRequest request) {
                 requests.add(request);
                 String path = decodedPath(request);
+                if ("GET".equals(request.getMethod())) {
+                    Optional<String> listDoctype = listDoctypeOf(path);
+                    if (listDoctype.isPresent() && failNextLists.containsKey(listDoctype.get())) {
+                        int status = failNextLists.remove(listDoctype.get());
+                        return json(status, "{\"exc_type\":\"DoesNotExistError\"}");
+                    }
+                }
                 MockResponse configured = docResponses.get(path);
-                if (configured == null) {
+                if (configured == null && "GET".equals(request.getMethod())) {
                     configured = doctypeOf(path).map(listResponses::get).orElse(null);
                 }
                 if (configured != null) {
                     return configured;
+                }
+                MockResponse written = writeEngine.handle(request);
+                if (written != null) {
+                    return written;
                 }
                 if (fallback != null) {
                     return fallback;
@@ -88,6 +111,8 @@ public final class FakeErpNext implements AutoCloseable {
         docResponses.clear();
         requests.clear();
         fallback = null;
+        failNextLists.clear();
+        writeEngine.reset();
     }
 
     public FakeErpNext onList(String doctype, String jsonBody) {
@@ -133,9 +158,68 @@ public final class FakeErpNext implements AutoCloseable {
                 "test-secret",
                 sellingPriceList,
                 "主仓库 - T",
+                "农批测试",
                 Duration.ofMillis(500),
                 Duration.ofMillis(500)
         );
+    }
+
+    public void hangNextWrite() {
+        writeEngine.hangNextWrite();
+    }
+
+    public void nextCreateMalformed() {
+        writeEngine.nextCreateResponse(200, "<<<not-json", true);
+    }
+
+    public void nextCreateMissingName() {
+        writeEngine.nextCreateResponse(200, "{\"data\":{\"docstatus\":0}}", true);
+    }
+
+    public void nextCreateValidationError() {
+        writeEngine.nextCreateResponse(417,
+                "{\"exc_type\":\"ValidationError\",\"exception\":\"frappe.exceptions.ValidationError: qty must be greater than 0\"}",
+                false);
+    }
+
+    public void failNextList(String doctype, int status) {
+        failNextLists.put(doctype, status);
+    }
+
+    public int salesOrderCount() {
+        return writeEngine.salesOrderCount();
+    }
+
+    public int paymentCount() {
+        return writeEngine.paymentCount();
+    }
+
+    public int salesOrderCreateCalls() {
+        return writeEngine.salesOrderCreateCalls();
+    }
+
+    public int paymentCreateCalls() {
+        return writeEngine.paymentCreateCalls();
+    }
+
+    public JsonNode lastGetPaymentEntryArgs() {
+        return writeEngine.lastGetPaymentEntryArgs();
+    }
+
+    public void setDocstatus(String doctype, String name, int docstatus, String status) {
+        writeEngine.setDocstatus(doctype, name, docstatus, status);
+    }
+
+    public ObjectNode paymentDoc(String name) {
+        return writeEngine.paymentDoc(name);
+    }
+
+    public void mutatePayment(String name, Consumer<ObjectNode> mutator) {
+        writeEngine.mutatePayment(name, mutator);
+    }
+
+    public void seedUnrelatedPayments(int count) {
+        writeEngine.seedUnrelatedPayments(count);
     }
 
     public String baseUrl() {
@@ -191,6 +275,17 @@ public final class FakeErpNext implements AutoCloseable {
         // 先把字面 '+' 保护起来，再做标准解码，避免 URLDecoder 把它变成空格。
         String guarded = value.replace("+", "%2B");
         return URLDecoder.decode(guarded, StandardCharsets.UTF_8);
+    }
+
+    private static Optional<String> listDoctypeOf(String decodedPath) {
+        if (!decodedPath.startsWith(RESOURCE_PREFIX)) {
+            return Optional.empty();
+        }
+        String remainder = decodedPath.substring(RESOURCE_PREFIX.length());
+        if (remainder.isEmpty() || remainder.contains("/")) {
+            return Optional.empty();
+        }
+        return Optional.of(remainder);
     }
 
     private static Optional<String> doctypeOf(String decodedPath) {

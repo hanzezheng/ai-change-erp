@@ -1,6 +1,6 @@
 # 06_API_DATA_DESIGN.md
 
-版本：3.0
+版本：3.1
 状态：Development Baseline
 
 # AI 农批经营助手 API 与数据设计
@@ -200,9 +200,11 @@ ID
   "productId": "APPLE",
   "itemCode": "APPLE-80",
   "productName": "苹果80果",
-  "spec": "80mm"
+  "spec": "80果"
 }
 ```
+
+`spec` 取 ERPNext `Item Variant Attribute.attribute_value` 原文。当前真实站点是「80果」。不要编造「80mm」，Flutter 也不要把「80果」转换成「80mm」。
 
 ERPNext 中 `Item.name == Item.item_code`，不存在独立的 Variant 主键。
 
@@ -403,7 +405,7 @@ lowStock
   "productId": "APPLE",
   "itemCode": "APPLE-80",
   "productName": "苹果80果",
-  "spec": "80mm",
+  "spec": "80果",
   "aliases": ["八零", "八零苹果"],
   "defaultUom": "箱",
   "allowedUoms": [
@@ -515,7 +517,7 @@ results[]
       "productId": "APPLE",
       "itemCode": "APPLE-80",
       "productName": "苹果80果",
-      "spec": "80mm",
+      "spec": "80果",
       "defaultUom": "箱",
       "referencePrice": 68,
       "lastDealPrice": 65,
@@ -588,10 +590,12 @@ uom
 {
   "price": 65,
   "uom": "箱",
-  "sourceOrderId": "SO-000123",
+  "sourceOrderId": "SAL-ORD-2026-00001",
   "transactionTime": "2026-08-18T10:20:00+08:00"
 }
 ```
+
+没有历史成交时返回空对象，不用 `referencePrice` 伪造。只统计已提交且未取消的 Sales Order，并按 customer + itemCode + UOM 匹配。
 
 MVP 优先聚合到商品选择接口，减少 App 请求次数。
 
@@ -631,20 +635,29 @@ ERPNext 的实际定价还需要结合正式业务上下文：
 
 ```text
 orderId
-erpSalesOrderId
 customerId
 customerName
 transactionDate
 items[]
 orderStatus
+orderStatusLabel
 paymentStatus
+paymentStatusLabel
 totalAmount
-paidAmount
-outstandingAmount
-note
+confirmedPaid
+remainingToCollect
+currency
 createdAt
 updatedAt
 ```
+
+`orderId` = ERPNext `Sales Order.name`。不要再返回 `erpSalesOrderId`。
+`updatedAt` = ERPNext `modified`。
+`remainingToCollect` 是经营收款进度，不是会计应收；不要再用 `outstandingAmount`。
+Phase 3 不返回 `note`。若请求带非空 `note`，返回 `UNSUPPORTED_FIELD`，不得静默丢弃。
+`POST /orders` 的 `items[].orderItemId` 必须为空；正式行号由 ERPNext 生成。
+`PUT /orders/{orderId}` 必须显式带 `transactionDate`（完整更新，不得默认成今天）。
+非空 `orderItemId` 必须属于当前这张 Sales Order，同一请求中不得重复；`null` 表示新增行，未出现的旧行表示删除。
 
 ------
 
@@ -673,7 +686,7 @@ lastDealPrice
   "productId": "APPLE",
   "itemCode": "APPLE-80",
   "productName": "苹果80果",
-  "spec": "80mm",
+  "spec": "80果",
   "qty": 20,
   "uom": "箱",
   "rate": 68,
@@ -724,8 +737,8 @@ POST /api/v1/orders
 
 ```json
 {
-  "mode": "draft",
-  "customerId": "C001",
+  "customerId": "韩兆亮",
+  "transactionDate": "2026-08-19",
   "items": [
     {
       "itemCode": "APPLE-80",
@@ -739,28 +752,27 @@ POST /api/v1/orders
       "uom": "件",
       "rate": 32
     }
-  ],
-  "note": "下午来拿"
+  ]
 }
 ```
+
+Header `Idempotency-Key` 必填。本接口永远只创建 Draft，不要传 `mode=draft|submit`。
+
+`transactionDate` 可省略；省略时按经营时区 `Asia/Shanghai` 取当天，不使用 JVM 默认时区。
+不要传 `note`。非空 `note` 返回 `UNSUPPORTED_FIELD`（当前版本暂不支持订单/收款备注）。
+不要传 `orderItemId`。客户端传入非空 `orderItemId` 返回 `INVALID_REQUEST`。
 
 ------
 
 # 21. 提交订单
 
-可以：
+Submit 只走：
 
 ```
 POST /api/v1/orders/{orderId}/submit
 ```
 
-或者创建时：
-
-```
-mode=submit
-```
-
-具体实现按 ERPNext Adapter 能力决定。
+已提交则返回当前对象（自然幂等）。不要在创建时使用 `mode=submit`。
 
 业务上必须明确：
 
@@ -795,6 +807,17 @@ items[]
 ```
 
 ERPNext Draft 已经存在之后，「保存修改」更新同一张 Sales Order。
+
+普通 `PUT /api/v1/orders/{orderId}` 仅允许 `docstatus=0`。必须带 `expectedModifiedAt`（等于上次返回的 `updatedAt`）和 `transactionDate`。冲突返回 `ORDER_CONFLICT`。已提交订单拒绝普通 PUT，返回 `ORDER_STATUS_INVALID`。
+
+`items[]` 是完整替换：
+
+- 非空 `orderItemId` 必须是当前这张 Sales Order 已有的 child row。引用其他订单或不存在的 name 返回 `INVALID_REQUEST`
+- 同一请求中 `orderItemId` 不得重复
+- `orderItemId = null` 表示新增行
+- 当前 Draft 中未出现在本次 `items[]` 的旧行表示删除
+
+不要传 `note`。非空 `note` 返回 `UNSUPPORTED_FIELD`。
 
 禁止更新订单时把其重新创建为新 Order。
 
@@ -885,13 +908,12 @@ V1 展示：
 
 ```text
 草稿
-待确认
 已提交
 已完成
 已取消
 ```
 
-不要让 Flutter 自己根据几个字段推导 ERPNext 状态。
+不要伪造订单「待确认」。不要让 Flutter 自己根据几个字段推导 ERPNext 状态。
 
 ------
 
@@ -976,11 +998,11 @@ GET /api/v1/orders/{orderId}
 
 ```text
 totalAmount
-paidAmount
-outstandingAmount
+confirmedPaid
+remainingToCollect
 ```
 
-应由服务端计算。
+应由服务端计算。不要返回 `outstandingAmount`。
 
 ------
 
@@ -996,12 +1018,19 @@ customerId
 customerName
 amount
 paymentMethod
-status
+paymentMethodLabel
+paymentStatus
+paymentStatusLabel
 relatedOrderId
-erpPaymentEntryId
 transactionTime
-note
 ```
+
+`paymentId` = ERPNext `Payment Entry.name`。不要再返回 `erpPaymentEntryId`。
+
+Phase 3 V1 的 `amount` 表示这笔收款针对关联 Sales Order 的 `Payment Entry Reference.allocated_amount`，不是银行侧 `paid_amount`。
+同币种时两者通常一致；多币种不得把 bank-side amount 当成订单收款金额。
+
+不要传 `note`。非空 `note` 返回 `UNSUPPORTED_FIELD`。
 
 ------
 
@@ -1025,29 +1054,34 @@ note
 
 # 32. Payment Method
 
-App 可展示：
+付款方式来自当前租户 ERPNext 的 Mode of Payment，不写死微信/现金，也不使用 `WECHAT_TRANSFER` 这类内部枚举作为唯一业务值。
+
+```
+GET /api/v1/payment-methods
+```
+
+返回：
 
 ```text
-微信转账
-现金
-银行转账
-```
-
-API 不建议直接把中文 UI 文案作为唯一业务值。
-
-建议：
-
-```text
-WECHAT_TRANSFER
-CASH
-BANK_TRANSFER
-```
-
-同时返回：
-
-```
+paymentMethodId
 paymentMethodLabel
 ```
+
+`paymentMethodId` 等于 ERPNext `Mode of Payment.name`。
+
+`GET /api/v1/payment-methods` 只返回当前 Tenant `defaultCompany` 下真正配置了 `Mode of Payment Account.default_account`、可用于 Customer Receive 的方式。
+未配置账户的方式不会出现在列表中，避免客户端选出必然失败的选项。
+公开 DTO 只返回 `paymentMethodId` / `paymentMethodName`，不暴露会计科目。
+
+创建 Customer Receive 时：
+
+1. 按所选方式解析当前 Company 的 `default_account`
+2. 调用 ERPNext `get_payment_entry`，传入 `party_amount` = 本次订单分配金额，以及 `bank_account` = 该 `default_account`
+3. 只补充 `mode_of_payment` 和真正需要的 `reference_no` / `reference_date`
+4. 不覆盖 ERPNext 生成的 `paid_to` / `paid_to_account_currency` / `paid_amount` / `received_amount` / 汇率
+5. 由 ERPNext 保存并校验
+
+Receive 场景下，所选 Mode 的 `default_account` 必须在生成阶段就成为 `Payment Entry.paid_to`。不要先让 ERP 用默认账户生成金额，再由 Spring Boot 改 `paid_to`。不要猜科目。
 
 ------
 
@@ -1108,13 +1142,50 @@ ERPNext Payment Adapter
 POST /api/v1/payments/{paymentId}/confirm
 ```
 
-确认后必须重新查询/计算：
+确认前必须重新读取完整 ERPNext Payment Entry，并重新查询当前 Sales Order 的 `confirmedPaid` / `remainingToCollect`。
+
+Phase 3 V1 只允许确认：
+
+- `payment_type = Receive`
+- `party_type = Customer`
+- `company = Tenant defaultCompany`
+- 恰好关联一张已提交、未取消的 Sales Order
+- `party` 等于该 Sales Order 的 customer
+- 对该 Sales Order 的 `allocated_amount > 0` 且不超过当前 `remainingToCollect`
+
+Supplier Pay、Internal Transfer、无 Sales Order、关联 Sales Invoice、其他 Company 或其他 unsupported shape：返回 `PAYMENT_NOT_SUPPORTED`。
+
+两张 Draft 都合法时，先确认的一张成功；第二张若会超收必须失败。Spring Boot 先按当前剩余金额拦截，ERPNext Submit 的 reference/outstanding 校验是并发最终防线。
 
 - confirmedPaid
-- outstanding
+- remainingToCollect
 - paymentStatus
 
 禁止只改 Payment 自己的状态。
+
+------
+
+# 35.1 查询 Payment
+
+```
+GET /api/v1/payments?relatedOrderId={orderId}
+```
+
+`relatedOrderId` 必填。缺失或 blank 返回 `INVALID_REQUEST`。
+
+Phase 3 V1 不提供全局收款流水。不要用空数组伪装「当前没有任何收款」。
+
+收款历史从具体订单详情进入。以后如果产品需要全局收款流水，再单独实现明确的全局 Payment Search API。
+
+```
+GET /api/v1/payments/{paymentId}
+```
+
+详情必须验证同一业务 shape：Customer Receive + 当前 Company + 恰好关联一张 Sales Order。
+
+Supplier Pay、Internal Transfer、无 Sales Order 的 Payment Entry：返回 `PAYMENT_NOT_SUPPORTED`。
+
+不要让 confirm 很严格、detail 却可以读取另一类会计 Payment。
 
 ------
 
@@ -1124,8 +1195,8 @@ POST /api/v1/payments/{paymentId}/confirm
 
 ```text
 confirmedPaid =
-当前订单相关所有正式已到账收款合计
-outstanding =
+当前订单相关所有正式已到账收款合计（优先 `Sales Order.advance_paid`）
+remainingToCollect =
 max(orderTotal - confirmedPaid, 0)
 ```
 
@@ -1178,9 +1249,9 @@ GET /api/v1/orders/{orderId}/payment-summary
 
 ```json
 {
-  "totalAmount": 2320,
+  "orderTotal": 2320,
   "confirmedPaid": 1000,
-  "outstandingAmount": 1320,
+  "remainingToCollect": 1320,
   "paymentStatus": "PARTIAL"
 }
 ```
@@ -1222,7 +1293,7 @@ pageSize
   "itemCode": "APPLE-80",
   "productId": "APPLE",
   "productName": "苹果80果",
-  "spec": "80mm",
+  "spec": "80果",
   "quantity": 450,
   "stockUom": "箱",
   "warehouse": "主仓库 - T",
@@ -1365,7 +1436,7 @@ payload
         "itemCode": "APPLE-80",
         "productId": "APPLE",
         "productName": "苹果80果",
-        "spec": "80mm",
+        "spec": "80果",
         "qty": 20,
         "uom": "箱",
         "rate": 65
@@ -1466,12 +1537,12 @@ APPLE-85
         {
           "itemCode": "APPLE-70",
           "name": "苹果70果",
-          "spec": "70mm"
+          "spec": "70果"
         },
         {
           "itemCode": "APPLE-80",
           "name": "苹果80果",
-          "spec": "80mm"
+          "spec": "80果"
         }
       ]
     }
@@ -1817,11 +1888,21 @@ ITEM_AMBIGUOUS
 INVALID_UOM
 INVALID_QUANTITY
 INVALID_RATE
+INVALID_REQUEST
 ORDER_NOT_FOUND
 ORDER_INVALID
 ORDER_STATUS_INVALID
+ORDER_CONFLICT
+PAYMENT_NOT_FOUND
 PAYMENT_INVALID
-PAYMENT_EXCEEDS_POLICY
+PAYMENT_STATUS_INVALID
+PAYMENT_METHOD_NOT_CONFIGURED
+PAYMENT_NOT_SUPPORTED
+UNSUPPORTED_FIELD
+ERP_WRITE_CONFIGURATION_INCOMPLETE
+IDEMPOTENCY_CONFLICT
+IDEMPOTENCY_IN_PROGRESS
+IDEMPOTENCY_OUTCOME_UNKNOWN
 AUTHENTICATION_FAILED
 TOKEN_EXPIRED
 TOKEN_INVALID
@@ -1835,6 +1916,7 @@ PERMISSION_DENIED
 TENANT_NOT_FOUND
 ERP_CONNECTION_NOT_CONFIGURED
 ERP_UNAVAILABLE
+ERP_VALIDATION_FAILED
 AI_UNAVAILABLE
 ASR_UNAVAILABLE
 ```
@@ -1870,6 +1952,10 @@ Success。
 ```text
 ERP_UNAVAILABLE
 ```
+
+ERPNext `ValidationError` / 业务校验失败不得映射为 `ERP_UNAVAILABLE`。应返回 `ERP_VALIDATION_FAILED`（或非常明确的 Payment 场景下的 `PAYMENT_INVALID`）。`TimestampMismatchError` 仍映射为 `ORDER_CONFLICT`。
+
+返回给客户端的 `message` 只使用安全文案，不带回 ERP traceback。服务端日志可记录 traceId 与原始 ERP 错误。
 
 Flutter 可以保留当前尚未提交的本地编辑状态并支持重试。
 
@@ -1953,10 +2039,12 @@ App Payment：
 
 具体：
 
-- Account
-- Mode of Payment
-- Party
-- Reference Document
+- Mode of Payment 必须绑定当前 Company 的 `default_account`
+- Customer Receive 的 `paid_to` = 该 default_account
+- 业务 `amount` = 对应 Sales Order 的 `Payment Entry Reference.allocated_amount`
+- `relatedOrderId` 同样来自正式 reference
+- 列表按 `Payment Entry Reference` 查询，不要全站扫描最近 50 条 Payment Entry
+- Account / 汇率由 ERPNext 生成，Spring Boot 不重写 `paid_amount` / `received_amount`
 
 由 Adapter / Business Service 处理。
 
@@ -2168,10 +2256,12 @@ POST   /orders
 PUT    /orders/{id}
 POST   /orders/{id}/submit
 
-GET    /payments
+GET    /payments?relatedOrderId=
+GET    /payments/{id}
 POST   /payments
 POST   /payments/{id}/confirm
 GET    /orders/{id}/payment-summary
+GET    /payment-methods
 
 POST   /ai/actions
 ```

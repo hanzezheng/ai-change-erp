@@ -41,7 +41,7 @@ class ErpErrorTranslationTest {
     @CsvSource({
             "401, ERP_UNAVAILABLE",
             "403, PERMISSION_DENIED",
-            "417, ERP_UNAVAILABLE",
+            "417, ERP_VALIDATION_FAILED",
             "500, ERP_UNAVAILABLE",
             "502, ERP_UNAVAILABLE",
             "503, ERP_UNAVAILABLE"
@@ -54,6 +54,37 @@ class ErpErrorTranslationTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).code())
                 .isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("ERPNext ValidationError 映射为 ERP_VALIDATION_FAILED，不告诉客户端 ERP 不可用")
+    void mapsValidationErrorToErpValidationFailed() {
+        erp.onListStatus(ErpCustomer.DOCTYPE, 417,
+                "{\"exc_type\":\"ValidationError\",\"exception\":\"frappe.exceptions.ValidationError: Allocated Amount cannot be greater than outstanding amount.\"}");
+
+        BusinessException exception = catchBusinessException();
+
+        assertThat(exception.code()).isEqualTo(BusinessErrorCode.ERP_VALIDATION_FAILED);
+        assertThat(exception.getMessage()).isEqualTo(BusinessErrorCode.ERP_VALIDATION_FAILED.defaultMessage());
+        assertThat(exception.getMessage()).doesNotContain("Allocated Amount", "traceback", "frappe.exceptions");
+        assertThat(exception.details()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("TimestampMismatchError 仍映射为 ORDER_CONFLICT")
+    void mapsTimestampMismatchToOrderConflict() {
+        erp.onListStatus(ErpCustomer.DOCTYPE, 417,
+                "{\"exc_type\":\"TimestampMismatchError\",\"exception\":\"frappe.exceptions.TimestampMismatchError: Document has been modified after you have opened it\"}");
+
+        assertThatThrownBy(() -> client.list(erp.connection("T001"), ErpCustomer.DOCTYPE,
+                ErpQuery.create().fields("name"), ErpCustomer.class))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> {
+                    BusinessException business = (BusinessException) ex;
+                    assertThat(business.code()).isEqualTo(BusinessErrorCode.ORDER_CONFLICT);
+                    assertThat(business.getMessage()).isEqualTo(BusinessErrorCode.ORDER_CONFLICT.defaultMessage());
+                    assertThat(business.getMessage()).doesNotContain("TimestampMismatchError");
+                });
     }
 
     @Test
@@ -73,7 +104,7 @@ class ErpErrorTranslationTest {
     void mapsConnectionRefusedToErpUnavailable() {
         // 指向一个没有服务在监听的端口
         ErpConnection unreachable = new ErpConnection("T001", "http://127.0.0.1:1",
-                "k", "s", "Standard Selling", null, Duration.ofMillis(300), Duration.ofMillis(300));
+                "k", "s", "Standard Selling", null, null, Duration.ofMillis(300), Duration.ofMillis(300));
 
         assertThatThrownBy(() -> client.list(unreachable, ErpCustomer.DOCTYPE,
                 ErpQuery.create().fields("name"), ErpCustomer.class))

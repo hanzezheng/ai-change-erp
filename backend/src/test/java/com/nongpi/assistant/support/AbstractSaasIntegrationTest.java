@@ -1,5 +1,6 @@
 package com.nongpi.assistant.support;
 
+import com.nongpi.assistant.saas.idempotency.IdempotencyRecordRepository;
 import com.nongpi.assistant.audit.AuditLogRepository;
 import com.nongpi.assistant.erp.connection.ErpConnectionEntity;
 import com.nongpi.assistant.erp.connection.ErpConnectionRepository;
@@ -24,7 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -79,6 +79,8 @@ public abstract class AbstractSaasIntegrationTest {
     @Autowired
     protected RefreshTokenRepository refreshTokenRepository;
     @Autowired
+    protected IdempotencyRecordRepository idempotencyRecordRepository;
+    @Autowired
     protected AuditLogRepository auditLogRepository;
     @Autowired
     protected PasswordEncoder passwordEncoder;
@@ -90,6 +92,7 @@ public abstract class AbstractSaasIntegrationTest {
     @BeforeEach
     void cleanSaasData() {
         auditLogRepository.deleteAll();
+        idempotencyRecordRepository.deleteAll();
         refreshTokenRepository.deleteAll();
         membershipRepository.deleteAll();
         erpConnectionRepository.deleteAll();
@@ -126,6 +129,7 @@ public abstract class AbstractSaasIntegrationTest {
         entity.setApiSecretCiphertext(credentialEncryptionService.encrypt(apiSecret));
         entity.setSellingPriceList("Standard Selling");
         entity.setDefaultWarehouse("主仓库 - T");
+        entity.setDefaultCompany("农批测试");
         entity.setStatus(ErpConnectionStatus.ACTIVE);
         entity.setConnectTimeoutMs(500);
         entity.setReadTimeoutMs(500);

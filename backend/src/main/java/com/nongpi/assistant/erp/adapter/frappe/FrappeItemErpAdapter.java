@@ -10,6 +10,7 @@ import com.nongpi.assistant.erp.dto.ErpItemAttribute;
 import com.nongpi.assistant.erp.dto.ErpItemPrice;
 import com.nongpi.assistant.erp.dto.ErpUomConversion;
 import com.nongpi.assistant.erp.mapper.ProductErpMapper;
+import com.nongpi.assistant.erp.mapper.ErpValues;
 import com.nongpi.assistant.product.domain.ProductVariant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +28,7 @@ public class FrappeItemErpAdapter implements ItemErpAdapter {
 
     private static final String[] ITEM_FIELDS = {
             "name", "item_code", "item_name", "description", "stock_uom", "sales_uom",
-            "variant_of", "item_group", "has_variants", "disabled", "safety_stock"
+            "variant_of", "item_group", "has_variants", "disabled", "is_sales_item", "safety_stock"
     };
 
     /** 按规格反查商品时，最多带回多少个候选 item_code 进入主查询。 */
@@ -53,6 +54,22 @@ public class FrappeItemErpAdapter implements ItemErpAdapter {
                 .map(item -> assemble(connection, List.of(item)))
                 .filter(variants -> !variants.isEmpty())
                 .map(variants -> variants.get(0));
+    }
+
+    @Override
+    public Optional<ProductVariant> findOrderableByItemCode(ErpConnection connection, String itemCode) {
+        return erpRestClient.getDoc(connection, ErpItem.DOCTYPE, itemCode, ErpItem.class)
+                .filter(this::isOrderable)
+                .map(item -> assemble(connection, List.of(item)))
+                .filter(variants -> !variants.isEmpty())
+                .map(variants -> variants.get(0));
+    }
+
+    private boolean isOrderable(ErpItem item) {
+        if (ErpValues.isTruthy(item.disabled()) || ErpValues.isTruthy(item.hasVariants())) {
+            return false;
+        }
+        return item.isSalesItem() == null || ErpValues.isTruthy(item.isSalesItem());
     }
 
     private List<ErpItem> searchItems(ErpConnection connection, String keyword, int offset, int limit) {

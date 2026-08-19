@@ -604,12 +604,14 @@ Product
 
 苹果
 
-→ 苹果70果 / 70mm
-→ 苹果75果 / 75mm
-→ 苹果80果 / 80mm
-→ 苹果85果 / 85mm
+→ 苹果70果 / 70果
+→ 苹果75果 / 75果
+→ 苹果80果 / 80果
+→ 苹果85果 / 85果
 
 真正进入 Sales Order Item 的必须是明确 ERP Item / Variant。
+
+规格展示 ERPNext Variant Attribute 原文（例如「80果」）。Flutter 不把「80果」转换成「80mm」。
 
 ------
 
@@ -904,22 +906,33 @@ price
 
 # 36. Order 正式身份
 
+`orderId` 等于 ERPNext `Sales Order.name`。公开 API 不再返回 `erpSalesOrderId`。
+
 订单至少包含：
 
 - orderId
-- ERP Sales Order ID
 - customerId
 - customerName
 - items[]
 - orderStatus
 - paymentStatus
 - totalAmount
-- note
+- confirmedPaid
+- remainingToCollect
 - timestamps
+
+`updatedAt` 等于 ERPNext `modified`，用于乐观锁。
+
+Phase 3 实测标准 `remarks` 创建后不会落库。当前版本若请求带非空 `note`，返回 `UNSUPPORTED_FIELD`，不得静默丢弃。Phase 4 Flutter 在后端真正支持之前，不要显示可编辑 note 输入框。
 
 ------
 
 # 37. OrderItem 正式身份
+
+`orderItemId` 等于 ERPNext `Sales Order Item.name`。
+
+- `POST /orders`：所有 Item 的 `orderItemId` 必须为空，由 ERPNext 生成
+- `PUT /orders/{orderId}`：非空 `orderItemId` 必须属于当前这张 Sales Order；同一请求不得重复；`null` 表示新增行
 
 OrderItem 至少：
 
@@ -980,7 +993,7 @@ float / double
 
 例如：
 
-苹果80果 · 80mm　　　　　　　¥1,360 ＞
+苹果80果 · 80果　　　　　　　¥1,360 ＞
 20箱 × ¥68/箱　　　　上次 ¥65/箱
 
 整行可点。
@@ -1152,11 +1165,12 @@ V1 不支持把存在无效商品行的订单持久化为正式 ERP Draft。
 
 Order Status：
 
-- 草稿
-- 待确认
-- 已提交
-- 已完成
-- 已取消
+- 草稿（`docstatus=0`）
+- 已提交（`docstatus=1` 且 ERP `status` 不是 Completed）
+- 已完成（`docstatus=1` 且 ERP `status=Completed`）
+- 已取消（`docstatus=2`）
+
+不要伪造订单「待确认」。ERPNext 没有对应的订单状态。
 
 Payment Status：
 
@@ -1191,6 +1205,8 @@ Order Status → 已完成
 
 # 49. Payment 正式身份
 
+`paymentId` 等于 ERPNext `Payment Entry.name`。公开 API 不再返回 `erpPaymentEntryId`。
+
 Payment 必须至少保存：
 
 - paymentId
@@ -1200,8 +1216,13 @@ Payment 必须至少保存：
 - paymentMethod
 - paymentStatus
 - relatedOrderId
-- ERP Payment Entry ID
 - transactionTime
+
+付款方式来自 ERPNext Mode of Payment，不写死微信/现金。`GET /payment-methods` 只返回当前 `defaultCompany` 已配置 `default_account` 的方式。创建 Customer Receive 时，该账户必须成为 `Payment Entry.paid_to`。不猜科目。
+
+业务 `amount` 取自对应 Sales Order 的 `Payment Entry Reference.allocated_amount`。不要假定 `paid_amount` 在所有情况下都等于订单分配金额。
+
+`POST /payments/{id}/confirm` 只允许确认恰好关联一张已提交 Sales Order 的 Customer Receive。Confirm 前重新校验当前剩余金额。ERPNext Submit 是并发付款最终防线。
 
 禁止只保存 Customer Name。
 
@@ -1228,10 +1249,12 @@ customerId。
 必须：
 
 confirmedPaid =
-所有该订单 `已到账` Payment 总额
+所有该订单已提交（已到账）Payment 总额，优先使用 `Sales Order.advance_paid`
 
-outstanding =
+remainingToCollect =
 max(orderTotal - confirmedPaid, 0)
+
+`remainingToCollect` 是经营收款进度，不是会计应收。Draft Payment Entry 不计。
 
 规则：
 
@@ -1257,6 +1280,8 @@ Payment：
 
 禁止只修改 Payment 自己。
 
+Confirm 前重新读取完整 Payment Entry，并按当前 Sales Order 的 `remainingToCollect` 校验本次 `allocated_amount`。两张合法 Draft 不能都超收成功。ERPNext Submit 是并发最终防线。
+
 ------
 
 # 53. 补收尾款
@@ -1273,7 +1298,7 @@ Confirmed Paid：
 
 系统必须知道：
 
-Outstanding：
+remainingToCollect：
 
 1320
 
@@ -1814,7 +1839,7 @@ Text：
 
 例如：
 
-苹果80果 · 80mm　　　　　　¥1,360 ＞
+苹果80果 · 80果　　　　　　¥1,360 ＞
 20箱 × ¥68/箱　　　上次 ¥65/箱
 
 长名称：
@@ -1956,12 +1981,24 @@ Order 使用 Order ID。
 - INVALID_UOM
 - INVALID_QUANTITY
 - INVALID_RATE
+- INVALID_REQUEST
+- ORDER_NOT_FOUND
 - ORDER_INVALID
 - ORDER_STATUS_INVALID
 - ORDER_CONFLICT
+- PAYMENT_NOT_FOUND
 - PAYMENT_INVALID
+- PAYMENT_STATUS_INVALID
+- PAYMENT_METHOD_NOT_CONFIGURED
+- PAYMENT_NOT_SUPPORTED
+- UNSUPPORTED_FIELD
+- ERP_WRITE_CONFIGURATION_INCOMPLETE
+- IDEMPOTENCY_CONFLICT
+- IDEMPOTENCY_IN_PROGRESS
+- IDEMPOTENCY_OUTCOME_UNKNOWN
 - PERMISSION_DENIED
 - ERP_UNAVAILABLE
+- ERP_VALIDATION_FAILED
 - AI_UNAVAILABLE
 - ASR_UNAVAILABLE
 

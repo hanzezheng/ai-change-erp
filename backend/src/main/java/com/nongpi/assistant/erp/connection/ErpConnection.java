@@ -15,6 +15,7 @@ public record ErpConnection(
         String apiSecret,
         String sellingPriceList,
         String defaultWarehouse,
+        String defaultCompany,
         Duration connectTimeout,
         Duration readTimeout
 ) {

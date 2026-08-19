@@ -97,6 +97,7 @@ public class LocalSaasBootstrap implements ApplicationRunner {
             connection.setApiSecretCiphertext(credentialEncryptionService.encrypt(erpApiSecret));
             connection.setSellingPriceList(trimToNull(environment.getProperty("ERP_SELLING_PRICE_LIST", "Standard Selling")));
             connection.setDefaultWarehouse(trimToNull(environment.getProperty("ERP_DEFAULT_WAREHOUSE")));
+            connection.setDefaultCompany(trimToNull(environment.getProperty("ERP_DEFAULT_COMPANY")));
             connection.setStatus(ErpConnectionStatus.ACTIVE);
             connection.setConnectTimeoutMs(5000);
             connection.setReadTimeoutMs(20000);
