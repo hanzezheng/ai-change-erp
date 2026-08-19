@@ -1,4 +1,4 @@
-# 02_ARCHITECTURE.md
+# 02_ARCHITECTURE_DECISION.md
 
 版本：2.2（长期 SaaS 生产架构版）
 
@@ -741,6 +741,9 @@ RabbitMQ
 
 ERPNext独立部署
 ```
+
+一个 SaaS Tenant 对应一个 Frappe / ERPNext Site（已冻结，见 `AGENTS.md` #20）。
+不要建设 `ErpInstance` 领域模型，也不要让多个 Tenant 共享同一个 Site。
 
 ------
 

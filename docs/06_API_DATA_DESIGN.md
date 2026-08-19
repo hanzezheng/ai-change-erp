@@ -197,13 +197,40 @@ ID
 
 ```json
 {
-  "productId": "P001",
-  "variantId": "P001V80",
+  "productId": "APPLE",
   "itemCode": "APPLE-80",
   "productName": "苹果80果",
   "spec": "80mm"
 }
 ```
+
+ERPNext 中 `Item.name == Item.item_code`，不存在独立的 Variant 主键。
+
+因此商品身份只有两个字段：
+
+`itemCode`
+
+= 可交易 ERPNext Item 的唯一正式身份
+
+`productId`
+
+= Variant 时取 `Item.variant_of`
+
+= 非 Variant 时取自身 `itemCode`
+
+= 只用于商品模板 / 商品族分组
+
+非变体商品示例：
+
+```json
+{
+  "productId": "BANANA-FEN",
+  "itemCode": "BANANA-FEN",
+  "productName": "香蕉粉蕉"
+}
+```
+
+禁止制造 `P001V80` 这种 ERPNext 不存在的合成主键。
 
 正式业务不能只使用：
 
@@ -349,19 +376,21 @@ Product 可以作为 App 聚合概念。
 
 ------
 
-# 11. Product Variant DTO
+# 11. Product DTO
 
 建议：
 
 ```text
 productId
-variantId
 itemCode
 productName
 spec
-alias[]
+aliases[]
 defaultUom
 allowedUoms[]
+referencePrice
+priceUom
+currency
 stock
 stockUom
 lowStock
@@ -371,8 +400,7 @@ lowStock
 
 ```json
 {
-  "productId": "P001",
-  "variantId": "P001V80",
+  "productId": "APPLE",
   "itemCode": "APPLE-80",
   "productName": "苹果80果",
   "spec": "80mm",
@@ -390,6 +418,9 @@ lowStock
       "conversionFactor": 20
     }
   ],
+  "referencePrice": 68,
+  "priceUom": "箱",
+  "currency": "CNY",
   "stock": 450,
   "stockUom": "箱",
   "lowStock": false
@@ -399,6 +430,10 @@ lowStock
 `conversionFactor` 只有 ERPNext / Adapter 能可靠提供时才返回。
 
 App 不建立第二套换算事实。
+
+`referencePrice` 只用于展示与默认参考价，不是成交价，边界见第 16 节。
+
+`lowStock` 只有在 ERPNext 存在明确预警配置时才有值，否则不返回。
 
 ------
 
@@ -477,7 +512,7 @@ results[]
 {
   "frequentItems": [
     {
-      "variantId": "P001V80",
+      "productId": "APPLE",
       "itemCode": "APPLE-80",
       "productName": "苹果80果",
       "spec": "80mm",
@@ -501,7 +536,7 @@ results[]
 ```text
 tenant
 customerId
-itemCode / variantId
+itemCode
 uom
 ```
 
@@ -560,6 +595,32 @@ uom
 
 MVP 优先聚合到商品选择接口，减少 App 请求次数。
 
+**referencePrice 与成交价的区别**
+
+`referencePrice` 来自 ERPNext Item Price，只用于：
+
+- Product Selector 展示
+- 订单行的默认参考价
+
+它不是最终权威成交价格计算器。
+
+ERPNext 的实际定价还需要结合正式业务上下文：
+
+- Selling Price List
+- Customer
+- UOM
+- Qty
+- Currency
+- Transaction Date
+- Pricing Rule
+
+订单模块必须通过 ERPNext 正式定价链路取得成交价。
+
+禁止把 Product Selector 返回的 `referencePrice`
+直接当作 ERPNext 最终定价结果。
+
+`lastDealPrice` 是历史事实，同样不是当前定价结果。
+
 ------
 
 # 17. Sales Order DTO
@@ -594,7 +655,6 @@ updatedAt
 ```text
 orderItemId
 productId
-variantId
 itemCode
 productName
 spec
@@ -610,8 +670,7 @@ lastDealPrice
 ```json
 {
   "orderItemId": "ITEM-1",
-  "productId": "P001",
-  "variantId": "P001V80",
+  "productId": "APPLE",
   "itemCode": "APPLE-80",
   "productName": "苹果80果",
   "spec": "80mm",
@@ -632,7 +691,7 @@ lastDealPrice
 ```json
 {
   "customerId": "C001",
-  "productId": "P001",
+  "itemCode": "APPLE-80",
   "qty": 20,
   "price": 68
 }
@@ -650,7 +709,12 @@ lastDealPrice
 
 # 20. 创建订单草稿
 
-建议：
+前提：编辑过程中不调用本接口。
+
+新增 / 编辑订单过程中只是客户端本地编辑状态，
+不产生 ERPNext Sales Order（详见第 24 节）。
+
+只有用户点击「保存草稿」时才调用：
 
 ```
 POST /api/v1/orders
@@ -730,6 +794,8 @@ PATCH /api/v1/orders/{orderId}
 items[]
 ```
 
+ERPNext Draft 已经存在之后，「保存修改」更新同一张 Sales Order。
+
 禁止更新订单时把其重新创建为新 Order。
 
 ------
@@ -755,23 +821,59 @@ Flutter 校验只用于 UX。
 
 ------
 
-# 24. 草稿容错
+# 24. Draft 边界（V1 已冻结）
 
-Draft 可以允许：
+Draft 分两层，必须区分清楚。
 
-部分业务字段暂未完成。
+**第一层：客户端编辑状态**
 
-但正式提交不能。
+新增 / 编辑订单过程中，只是 Flutter 本地编辑状态。
 
-例如：
+不立即创建 ERPNext Sales Order。
 
-一个 Draft 中存在待确认 Item：
+AI 解析出的订单同样只是普通订单编辑页的 Draft State。
 
-允许临时保存。
+AI 解析完成不自动创建 ERPNext Sales Order。
 
-提交：
+这一层允许字段暂未完成。
 
-必须阻止。
+**第二层：ERPNext Draft Sales Order**
+
+用户点击「保存草稿」时：
+
+数据通过最低正式订单校验后，
+才创建 ERPNext `docstatus=0` Draft Sales Order。
+
+ERPNext Draft 创建之后：
+
+后续「保存修改」更新同一张 Sales Order。
+
+禁止创建新单。
+
+用户点击「提交订单」：
+
+Submit 同一张 ERPNext Sales Order。
+
+**V1 明确规则**
+
+V1 不引入 PostgreSQL Order Working Draft 表。
+
+V1 不支持把存在无效商品行的订单持久化为正式 ERP Draft。
+
+例如商品已选但数量为空：
+
+保存草稿时提示填写。
+
+不静默删除该商品行（参见第 45 节禁止静默删除）。
+
+也不建立第二套订单草稿事实。
+
+**已废弃的说法**
+
+早期「保存草稿允许任意不完整商品行」不再成立。
+
+「允许不完整」只适用于第一层客户端编辑状态，
+不适用于创建 ERPNext Draft Sales Order。
 
 ------
 
@@ -1118,17 +1220,23 @@ pageSize
 ```json
 {
   "itemCode": "APPLE-80",
-  "variantId": "P001V80",
+  "productId": "APPLE",
   "productName": "苹果80果",
   "spec": "80mm",
   "quantity": 450,
   "stockUom": "箱",
+  "warehouse": "主仓库 - T",
   "lowStock": false,
   "alertQty": 50
 }
 ```
 
 Stock 事实来自 ERPNext。
+
+`lowStock` 与 `alertQty` 只有在 ERPNext 存在明确预警配置
+（`Item Reorder.warehouse_reorder_level` 或 `Item.safety_stock`）时才返回。
+
+没有预警配置时不返回这两个字段，表示「无法判断」，不能默认成 false。
 
 ------
 
@@ -1255,7 +1363,7 @@ payload
     "items": [
       {
         "itemCode": "APPLE-80",
-        "variantId": "P001V80",
+        "productId": "APPLE",
         "productName": "苹果80果",
         "spec": "80mm",
         "qty": 20,
@@ -1417,7 +1525,7 @@ AI 不得跨 Tenant 查询别名。
 最终 Action 必须引用：
 
 ```
-itemCode / variantId
+itemCode
 ```
 
 不能只留下：
@@ -1798,7 +1906,6 @@ App：
 
 ```text
 itemCode
-variantId
 qty
 uom
 rate
