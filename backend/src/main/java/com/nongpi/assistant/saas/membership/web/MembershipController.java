@@ -31,7 +31,7 @@ public class MembershipController {
     @GetMapping
     @PreAuthorize("@roles.atLeast('ADMIN')")
     public List<MembershipCommandService.MembershipView> list() {
-        return membershipCommandService.listCurrentTenant(SecurityUtils.requireUser().tenantId());
+        return membershipCommandService.listCurrentTenant(SecurityUtils.requireUser());
     }
 
     @PostMapping

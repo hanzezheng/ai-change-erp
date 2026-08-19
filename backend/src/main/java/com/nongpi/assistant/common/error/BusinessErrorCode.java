@@ -21,6 +21,7 @@ public enum BusinessErrorCode {
     TENANT_DISABLED(HttpStatus.FORBIDDEN, "企业已被停用"),
     TENANT_SELECTION_REQUIRED(HttpStatus.CONFLICT, "请选择要进入的企业"),
     MEMBERSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "未找到有效的企业成员关系"),
+    LAST_ACTIVE_OWNER_REQUIRED(HttpStatus.CONFLICT, "企业必须至少保留一名有效的所有者"),
     PERMISSION_DENIED(HttpStatus.FORBIDDEN, "没有权限执行该操作"),
     TENANT_NOT_FOUND(HttpStatus.FORBIDDEN, "租户不存在或未启用"),
     ERP_CONNECTION_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "当前企业尚未配置 ERP 连接"),

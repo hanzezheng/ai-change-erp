@@ -45,4 +45,6 @@ public interface MembershipRepository extends JpaRepository<MembershipEntity, UU
     List<MembershipEntity> findByTenantIdWithUser(@Param("tenantId") UUID tenantId);
 
     boolean existsByTenant_IdAndUser_Id(UUID tenantId, UUID userId);
+
+    long countByTenant_IdAndRoleAndStatus(UUID tenantId, MembershipRole role, MembershipStatus status);
 }

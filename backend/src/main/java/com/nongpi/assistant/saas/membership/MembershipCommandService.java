@@ -40,16 +40,21 @@ public class MembershipCommandService {
     }
 
     @Transactional(readOnly = true)
-    public List<MembershipView> listCurrentTenant(UUID tenantId) {
-        return membershipRepository.findByTenantIdWithUser(tenantId).stream()
+    public List<MembershipView> listCurrentTenant(UserPrincipal actor) {
+        assertCanManageMemberships(actor);
+        return membershipRepository.findByTenantIdWithUser(actor.tenantId()).stream()
                 .map(MembershipView::from)
                 .toList();
     }
 
     @Transactional
     public MembershipView create(UserPrincipal actor, CreateCommand command) {
-        TenantEntity tenant = tenantRepository.findById(actor.tenantId())
-                .orElseThrow(() -> new BusinessException(BusinessErrorCode.TENANT_NOT_FOUND));
+        assertCanManageMemberships(actor);
+        if (command.role() == null) {
+            throw new BusinessException(BusinessErrorCode.INVALID_REQUEST, "必须指定成员角色");
+        }
+        assertCanAssignRole(actor, command.role());
+        TenantEntity tenant = lockTenant(actor.tenantId());
         AppUserEntity user = resolveOrCreateUser(command);
         if (membershipRepository.existsByTenant_IdAndUser_Id(tenant.getId(), user.getId())) {
             throw new BusinessException(BusinessErrorCode.INVALID_REQUEST, "该用户已属于当前企业");
@@ -65,11 +70,22 @@ public class MembershipCommandService {
 
     @Transactional
     public MembershipView update(UserPrincipal actor, UUID membershipId, UpdateCommand command) {
+        assertCanManageMemberships(actor);
+        TenantEntity tenant = lockTenant(actor.tenantId());
         MembershipEntity membership = membershipRepository.findWithUserAndTenantById(membershipId)
                 .orElseThrow(() -> new BusinessException(BusinessErrorCode.MEMBERSHIP_NOT_FOUND));
-        if (!membership.getTenant().getId().equals(actor.tenantId())) {
+        if (!membership.getTenant().getId().equals(tenant.getId())) {
             throw new BusinessException(BusinessErrorCode.PERMISSION_DENIED);
         }
+        assertCanMutateMembership(actor, membership);
+
+        MembershipRole newRole = command.role() == null ? membership.getRole() : command.role();
+        MembershipStatus newStatus = command.status() == null ? membership.getStatus() : command.status();
+        if (command.role() != null) {
+            assertCanAssignRole(actor, command.role());
+        }
+        assertKeepsLastActiveOwner(tenant.getId(), membership, newRole, newStatus);
+
         if (command.role() != null) {
             membership.setRole(command.role());
         }
@@ -80,6 +96,60 @@ public class MembershipCommandService {
                 "Membership", membership.getId().toString(),
                 Map.of("role", membership.getRole().name(), "status", membership.getStatus().name()));
         return MembershipView.from(membership);
+    }
+
+    private TenantEntity lockTenant(UUID tenantId) {
+        return tenantRepository.findByIdForUpdate(tenantId)
+                .orElseThrow(() -> new BusinessException(BusinessErrorCode.TENANT_NOT_FOUND));
+    }
+
+    private void assertCanManageMemberships(UserPrincipal actor) {
+        if (actor == null || actor.role() == null || !actor.role().atLeast(MembershipRole.ADMIN)) {
+            throw new BusinessException(BusinessErrorCode.PERMISSION_DENIED);
+        }
+    }
+
+    private void assertCanAssignRole(UserPrincipal actor, MembershipRole targetRole) {
+        if (actor.role() == MembershipRole.OWNER) {
+            return;
+        }
+        if (actor.role() == MembershipRole.ADMIN
+                && (targetRole == MembershipRole.ADMIN || targetRole == MembershipRole.STAFF)) {
+            return;
+        }
+        throw new BusinessException(BusinessErrorCode.PERMISSION_DENIED, "不能授予所有者角色");
+    }
+
+    private void assertCanMutateMembership(UserPrincipal actor, MembershipEntity target) {
+        if (actor.role() == MembershipRole.OWNER) {
+            return;
+        }
+        if (actor.role() == MembershipRole.ADMIN && target.getRole() != MembershipRole.OWNER) {
+            return;
+        }
+        throw new BusinessException(BusinessErrorCode.PERMISSION_DENIED, "不能修改所有者成员关系");
+    }
+
+    /**
+     * 每个 ACTIVE Tenant 必须至少保留一名 ACTIVE OWNER。
+     * 调用前必须已锁住 Tenant 行，保证检查与更新在同一事务中串行。
+     */
+    private void assertKeepsLastActiveOwner(UUID tenantId,
+                                            MembershipEntity target,
+                                            MembershipRole newRole,
+                                            MembershipStatus newStatus) {
+        boolean currentlyActiveOwner = target.getRole() == MembershipRole.OWNER
+                && target.getStatus() == MembershipStatus.ACTIVE;
+        boolean remainsActiveOwner = newRole == MembershipRole.OWNER
+                && newStatus == MembershipStatus.ACTIVE;
+        if (!currentlyActiveOwner || remainsActiveOwner) {
+            return;
+        }
+        long activeOwners = membershipRepository.countByTenant_IdAndRoleAndStatus(
+                tenantId, MembershipRole.OWNER, MembershipStatus.ACTIVE);
+        if (activeOwners <= 1) {
+            throw new BusinessException(BusinessErrorCode.LAST_ACTIVE_OWNER_REQUIRED);
+        }
     }
 
     private AppUserEntity resolveOrCreateUser(CreateCommand command) {

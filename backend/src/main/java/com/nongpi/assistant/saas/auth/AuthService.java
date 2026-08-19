@@ -88,16 +88,17 @@ public class AuthService {
 
     @Transactional
     public TokenBundle refresh(String refreshToken) {
-        RefreshTokenEntity stored = requireUsableRefreshToken(refreshToken);
+        RefreshTokenEntity stored = requireUsableRefreshTokenForUpdate(refreshToken);
         MembershipEntity membership = membershipRepository
                 .findByTenant_IdAndUser_Id(stored.getTenant().getId(), stored.getUser().getId())
                 .orElseThrow(() -> new BusinessException(BusinessErrorCode.REFRESH_TOKEN_INVALID));
         assertMembershipUsable(membership);
-        UserPrincipal principal = toPrincipal(stored.getUser(), membership);
-        String accessToken = jwtService.issueAccessToken(principal);
-        auditService.success(stored.getTenant().getId(), stored.getUser().getId(), AuditActions.REFRESH_TOKEN,
+        AppUserEntity user = stored.getUser();
+        stored.revoke(clock.instant());
+        TokenBundle bundle = issueTokens(user, membership);
+        auditService.success(stored.getTenant().getId(), user.getId(), AuditActions.REFRESH_TOKEN,
                 "RefreshToken", stored.getId().toString(), Map.of());
-        return new TokenBundle(accessToken, refreshToken, jwtService.accessTokenTtl().toSeconds(), principal);
+        return bundle;
     }
 
     @Transactional
@@ -191,10 +192,21 @@ public class AuthService {
     }
 
     private RefreshTokenEntity requireUsableRefreshToken(String refreshToken) {
+        return requireUsableRefreshToken(refreshToken, false);
+    }
+
+    private RefreshTokenEntity requireUsableRefreshTokenForUpdate(String refreshToken) {
+        return requireUsableRefreshToken(refreshToken, true);
+    }
+
+    private RefreshTokenEntity requireUsableRefreshToken(String refreshToken, boolean forUpdate) {
         if (refreshToken == null || refreshToken.isBlank()) {
             throw new BusinessException(BusinessErrorCode.REFRESH_TOKEN_INVALID);
         }
-        RefreshTokenEntity stored = refreshTokenRepository.findByTokenHash(hashRefreshToken(refreshToken))
+        String hash = hashRefreshToken(refreshToken);
+        RefreshTokenEntity stored = (forUpdate
+                ? refreshTokenRepository.findByTokenHashForUpdate(hash)
+                : refreshTokenRepository.findByTokenHash(hash))
                 .orElseThrow(() -> new BusinessException(BusinessErrorCode.REFRESH_TOKEN_INVALID));
         if (stored.isRevoked() || stored.getExpiresAt().isBefore(clock.instant())) {
             throw new BusinessException(BusinessErrorCode.REFRESH_TOKEN_INVALID);

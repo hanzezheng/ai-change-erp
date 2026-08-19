@@ -224,7 +224,7 @@ class AuthApiTest extends AbstractSaasIntegrationTest {
     }
 
     @Test
-    @DisplayName("Refresh Token 可换发新的 Access Token，原始 refresh 不入库")
+    @DisplayName("Refresh 成功后轮换 Refresh Token，旧 Token 立即失效")
     void refreshToken() throws Exception {
         TenantEntity tenant = newTenant("徐州水果档口", TenantStatus.ACTIVE);
         AppUserEntity user = newUser("boss", "correct-password", UserStatus.ACTIVE);
@@ -237,18 +237,56 @@ class AuthApiTest extends AbstractSaasIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        String refresh = objectMapper.readTree(body).get("refreshToken").asText();
+        String oldRefresh = objectMapper.readTree(body).get("refreshToken").asText();
 
         assertThat(refreshTokenRepository.findAll().get(0).getTokenHash())
-                .isEqualTo(AuthService.hashRefreshToken(refresh));
-        assertThat(refreshTokenRepository.findAll().get(0).getTokenHash()).isNotEqualTo(refresh);
+                .isEqualTo(AuthService.hashRefreshToken(oldRefresh));
+        assertThat(refreshTokenRepository.findAll().get(0).getTokenHash()).isNotEqualTo(oldRefresh);
+
+        String rotatedBody = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("refreshToken", oldRefresh))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isString())
+                .andExpect(jsonPath("$.refreshToken").isString())
+                .andReturn().getResponse().getContentAsString();
+        String newRefresh = objectMapper.readTree(rotatedBody).get("refreshToken").asText();
+        assertThat(newRefresh).isNotEqualTo(oldRefresh);
+        assertThat(refreshTokenRepository.findByTokenHash(AuthService.hashRefreshToken(oldRefresh)))
+                .get()
+                .extracting(item -> item.getRevokedAt() != null)
+                .isEqualTo(true);
+        assertThat(refreshTokenRepository.findByTokenHash(AuthService.hashRefreshToken(newRefresh)))
+                .get()
+                .extracting(item -> item.getRevokedAt())
+                .isNull();
 
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("refreshToken", refresh))))
+                        .content(objectMapper.writeValueAsString(Map.of("refreshToken", oldRefresh))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REFRESH_TOKEN_INVALID"));
+
+        String secondBody = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("refreshToken", newRefresh))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").isString())
-                .andExpect(jsonPath("$.refreshToken").value(refresh));
+                .andExpect(jsonPath("$.refreshToken").isString())
+                .andReturn().getResponse().getContentAsString();
+        String newerRefresh = objectMapper.readTree(secondBody).get("refreshToken").asText();
+        String newerAccess = objectMapper.readTree(secondBody).get("accessToken").asText();
+        assertThat(newerRefresh).isNotEqualTo(newRefresh);
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .header("Authorization", bearer(newerAccess))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("refreshToken", newerRefresh))))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("refreshToken", newerRefresh))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REFRESH_TOKEN_INVALID"));
     }
 
     @Test
