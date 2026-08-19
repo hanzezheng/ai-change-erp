@@ -19,6 +19,10 @@ public record ErpFilter(String field, String operator, Object value) {
         return new ErpFilter(field, "like", pattern);
     }
 
+    public static ErpFilter greaterThan(String field, Object value) {
+        return new ErpFilter(field, ">", value);
+    }
+
     public static ErpFilter isSet(String field) {
         return new ErpFilter(field, "is", "set");
     }
