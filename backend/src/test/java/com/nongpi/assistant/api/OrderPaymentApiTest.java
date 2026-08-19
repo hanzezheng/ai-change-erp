@@ -501,7 +501,9 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
     @Test
     @DisplayName("ERP create 成功但 enrichment 失败时幂等仍 SUCCEEDED，重试不新建")
     void enrichmentFailureKeepsSucceededIdempotency() throws Exception {
-        ERP.failNextList("Item Variant Attribute", 500);
+        // mapOrder 在 create 之后会 list Item 做 productId enrichment；
+        // Item Variant Attribute 在 Prepare 校验 requireOrderableItem 时就会读取，不能用来模拟 commit 后失败。
+        ERP.failNextList("Item", 500);
         mockMvc.perform(post("/api/v1/orders")
                         .header("Authorization", bearer(token))
                         .header("Idempotency-Key", "k-enrich-fail")
