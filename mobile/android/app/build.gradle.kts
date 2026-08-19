@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.nongpi.assistant"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_secure_storage 11.x declares Android API 37 in its AAR metadata.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

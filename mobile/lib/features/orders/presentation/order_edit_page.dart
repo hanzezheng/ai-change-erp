@@ -44,11 +44,9 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
     _controller = OrderEditController(
       orders: ref.read(orderRepositoryProvider),
       loadLastDeal: ({required customerId, required itemCode, required uom}) {
-        return ref.read(productRepositoryProvider).lastDeal(
-              customerId: customerId,
-              itemCode: itemCode,
-              uom: uom,
-            );
+        return ref
+            .read(productRepositoryProvider)
+            .lastDeal(customerId: customerId, itemCode: itemCode, uom: uom);
       },
     );
     _bootstrap();
@@ -56,12 +54,17 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
 
   Future<void> _bootstrap() async {
     if (widget.orderId == null) {
-      _controller.startNew(customerId: widget.customerId, customerName: widget.customerName);
+      _controller.startNew(
+        customerId: widget.customerId,
+        customerName: widget.customerName,
+      );
       setState(() => _ready = true);
       return;
     }
     try {
-      final order = await ref.read(orderRepositoryProvider).getById(widget.orderId!);
+      final order = await ref
+          .read(orderRepositoryProvider)
+          .getById(widget.orderId!);
       _controller.loadExisting(order);
       setState(() => _ready = true);
     } on ApiException catch (error) {
@@ -79,8 +82,14 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
         title: const Text('放弃未保存内容？'),
         content: const Text('当前修改尚未保存。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('继续编辑')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('放弃')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('继续编辑'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('放弃'),
+          ),
         ],
       ),
     );
@@ -99,7 +108,10 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
   }
 
   Future<void> _addProduct() async {
-    final selected = await showProductSelector(context, customerId: _controller.state.customerId);
+    final selected = await showProductSelector(
+      context,
+      customerId: _controller.state.customerId,
+    );
     if (selected == null || !mounted) {
       return;
     }
@@ -131,20 +143,34 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
       return;
     }
     if (edited.item != null) {
-      setState(() => _controller.addOrReplaceItem(edited.item!, replaceIndex: index));
+      setState(
+        () => _controller.addOrReplaceItem(edited.item!, replaceIndex: index),
+      );
     }
   }
 
   LocalOrderItem _fromVariant(ProductVariant variant) {
     final uom = variant.defaultUom;
-    final ref = variant.uomInfo(uom)?.referencePrice ?? variant.referencePrice;
+    // A variant can expose a top-level price as well as per-UOM prices.  The
+    // top-level value is only a safe fallback when the response does not have
+    // an entry for this UOM (or explicitly identifies the same price UOM).
+    // Never use a price for a different UOM as the new line's rate.
+    final uomInfo = variant.uomInfo(uom);
+    final ref = uomInfo != null
+        ? uomInfo.referencePrice
+        : (variant.priceUom == null || variant.priceUom == uom
+              ? variant.referencePrice
+              : null);
     return LocalOrderItem(
       productId: variant.productId,
       itemCode: variant.itemCode,
       productName: variant.productName,
       spec: variant.spec,
       uom: uom,
-      rate: variant.lastDealPrice ?? ref,
+      // lastDealPrice is context for the operator, not the new transaction's
+      // agreed rate.  If no reference price exists the rate stays blank so the
+      // user must explicitly enter it.
+      rate: ref,
       referencePrice: ref,
       lastDealPrice: variant.lastDealPrice,
       allowedUoms: variant.allowedUoms,
@@ -158,7 +184,9 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
       return;
     }
     if (order != null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('草稿已保存')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('草稿已保存')));
     }
   }
 
@@ -177,7 +205,9 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
     if (_controller.state.orderId == null) {
       return;
     }
-    final order = await ref.read(orderRepositoryProvider).getById(_controller.state.orderId!);
+    final order = await ref
+        .read(orderRepositoryProvider)
+        .getById(_controller.state.orderId!);
     setState(() => _controller.loadExisting(order));
   }
 
@@ -214,9 +244,16 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
                 title: const Text('客户', style: AppTextStyles.secondary),
                 subtitle: Text(
                   state.customerName ?? '点击选择客户',
-                  style: state.customerName == null ? AppTextStyles.tertiary : AppTextStyles.bodyStrong,
+                  style: state.customerName == null
+                      ? AppTextStyles.tertiary
+                      : AppTextStyles.bodyStrong,
                 ),
-                trailing: state.readOnly ? null : const Icon(Icons.chevron_right, color: AppColors.textMuted),
+                trailing: state.readOnly
+                    ? null
+                    : const Icon(
+                        Icons.chevron_right,
+                        color: AppColors.textMuted,
+                      ),
                 onTap: state.readOnly ? null : _pickCustomer,
               ),
             ),
@@ -250,10 +287,16 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
                               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                               child: Align(
                                 alignment: Alignment.centerLeft,
-                                child: Text(state.items[i].lineError!, style: AppTextStyles.caption.copyWith(color: AppColors.danger)),
+                                child: Text(
+                                  state.items[i].lineError!,
+                                  style: AppTextStyles.caption.copyWith(
+                                    color: AppColors.danger,
+                                  ),
+                                ),
                               ),
                             ),
-                          if (i != state.items.length - 1) const Divider(height: 1),
+                          if (i != state.items.length - 1)
+                            const Divider(height: 1),
                         ],
                       ),
                   if (!state.readOnly)
@@ -271,29 +314,46 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
                 children: [
                   const Text('合计', style: AppTextStyles.secondary),
                   const Spacer(),
-                  Text(MoneyFormat.cny(state.serverTotal ?? state.localTotal), style: AppTextStyles.moneyLarge),
+                  Text(
+                    MoneyFormat.cny(state.serverTotal ?? state.localTotal),
+                    style: AppTextStyles.moneyLarge,
+                  ),
                 ],
               ),
             ),
             if (state.error != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(state.error!, style: AppTextStyles.caption.copyWith(color: AppColors.danger)),
+                child: Text(
+                  state.error!,
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.danger,
+                  ),
+                ),
               ),
             if (state.traceId != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                child: Text('错误编号 ${state.traceId}', style: AppTextStyles.tertiary),
+                child: Text(
+                  '错误编号 ${state.traceId}',
+                  style: AppTextStyles.tertiary,
+                ),
               ),
             if (state.conflict)
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: SecondaryButton(label: '刷新最新订单', onPressed: _refreshConflict),
+                child: SecondaryButton(
+                  label: '刷新最新订单',
+                  onPressed: _refreshConflict,
+                ),
               ),
             if (state.unknownOutcome)
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: SecondaryButton(label: '查看订单列表', onPressed: () => context.go('/orders')),
+                child: SecondaryButton(
+                  label: '查看订单列表',
+                  onPressed: () => context.go('/orders'),
+                ),
               ),
             const SizedBox(height: 80),
           ],
@@ -305,12 +365,18 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
                   SecondaryButton(
                     label: state.isNew ? '保存草稿' : '保存修改',
                     loading: state.busy,
-                    onPressed: state.busy || state.submitting || state.unknownOutcome ? null : _save,
+                    onPressed:
+                        state.busy || state.submitting || state.unknownOutcome
+                        ? null
+                        : _save,
                   ),
                   PrimaryButton(
                     label: '提交订单',
                     loading: state.submitting,
-                    onPressed: state.busy || state.submitting || state.unknownOutcome ? null : _submit,
+                    onPressed:
+                        state.busy || state.submitting || state.unknownOutcome
+                        ? null
+                        : _submit,
                   ),
                 ],
               ),

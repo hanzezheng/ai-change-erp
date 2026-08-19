@@ -16,9 +16,61 @@ flutter run \
 --dart-define=API_BASE_URL=http://10.0.2.2:8080
 ```
 
-真机请把 `10.0.2.2` 换成电脑局域网 IP。`API_BASE_URL` 只填 Spring Boot 源站（例如 `http://192.168.1.8:8080`），不要再拼 `/api/v1`，客户端请求路径已包含该前缀。
+`API_BASE_URL` 只填 Spring Boot 源站（例如 `http://192.168.1.8:8080`），不要再拼 `/api/v1`，客户端请求路径已包含该前缀。
 
-Android debug 已允许 cleartext HTTP。
+## Android 本地联调
+
+Android Emulator 访问宿主机 Spring Boot 时使用 `10.0.2.2`（不要使用
+`localhost`）：
+
+```bash
+cd mobile
+flutter run -d emulator-5554 \
+  --dart-define=API_BASE_URL=http://10.0.2.2:8080
+```
+
+真实设备与电脑在同一局域网时，使用电脑的局域网地址，并确保 Spring Boot
+监听该网卡且防火墙放行端口：
+
+```bash
+cd mobile
+flutter run \
+  --dart-define=API_BASE_URL=http://192.168.1.8:8080
+```
+
+`http://` 明文请求只在 Android debug manifest overlay 中开启；main/release
+manifest 不允许全局 cleartext。生产构建必须使用 `https://` API 地址和有效的
+TLS 证书，不要把本地 HTTP 地址写进生产配置。
+
+## Release 签名
+
+本阶段只验证 debug APK，不发布应用商店。Production Release Signing 在发布前
+必须单独配置正式 keystore、密钥保管和 CI secrets；不要把 Android debug keystore
+当作正式签名方案。完成正式签名配置后，才可使用以下发布构建示例：
+
+```bash
+cd mobile
+flutter build appbundle --release \
+  --dart-define=API_BASE_URL=https://api.example.com
+```
+
+## 真实黄金路径
+
+在 Android Emulator 或真实设备上运行上述 debug 命令，并先启动可访问的
+Spring Boot、PostgreSQL 与 ERPNext v16。使用真实账号完成以下闭环（不要使用
+Fake Dio 测试数据）：
+
+1. 登录并选择租户（如账号有多个租户），确认首页、客户和库存都能加载。
+2. 新建订单，选择客户“韩兆亮”、`APPLE-80`（规格 `80果`），确认默认成交价来自当前 UOM 的 `referencePrice`；输入 `20` 箱。
+3. 添加 `BANANA-FEN`，输入 `30` 件，保存草稿；在 ERPNext 检查同一张 Sales Order 及其行 ID。
+4. 在 App 回读订单后把苹果从 20 改为 30，保存并确认 ERPNext 仍是同一张 Sales Order，再提交订单。
+5. 进入记录收款，选择 ERPNext 返回的付款方式，收款 `1000` 并选择“已到账”；创建 Draft 后确认同一个 payment ID，检查订单为部分收款。
+6. 使用“补收尾款”完成剩余金额，确认订单变为已收款但不会因付款自动变为已完成；检查两笔 Payment Entry 的历史。
+7. 打开库存、客户详情确认数据来自后端，最后退出登录。
+
+Emulator 运行时可用 `flutter devices` 查看设备 ID；真实设备需开启 USB
+调试并允许 App 安装。若 API 不可达，先检查设备到电脑的路由、防火墙和
+Spring Boot 监听地址，再重试，不要在客户端拼接额外的 `/api/v1`。
 
 ## 当前能力
 

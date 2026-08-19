@@ -43,7 +43,7 @@ Map<String, dynamic> orderJson({
         'uom': '箱',
         'rate': '68',
         'amount': '1360',
-      }
+      },
     ],
     'orderStatus': status,
     'orderStatusLabel': status == 'DRAFT' ? '草稿' : '已提交',
@@ -73,7 +73,9 @@ void main() {
     });
     final controller = OrderEditController(
       orders: OrderRepository(client(adapter, store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.startNew();
     expect(controller.state.isNew, isTrue);
@@ -82,19 +84,29 @@ void main() {
 
   test('select customer binds customerId', () {
     final controller = OrderEditController(
-      orders: OrderRepository(client(ScriptedAdapter((_) async => ScriptedHttp(200, {})), store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      orders: OrderRepository(
+        client(ScriptedAdapter((_) async => ScriptedHttp(200, {})), store),
+      ),
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.startNew();
-    controller.selectCustomer(const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'));
+    controller.selectCustomer(
+      const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'),
+    );
     expect(controller.state.customerId, 'CUST-HAN');
     expect(controller.state.customerName, '韩兆亮');
   });
 
   test('add product binds itemCode and single UOM stays the given uom', () {
     final controller = OrderEditController(
-      orders: OrderRepository(client(ScriptedAdapter((_) async => ScriptedHttp(200, {})), store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      orders: OrderRepository(
+        client(ScriptedAdapter((_) async => ScriptedHttp(200, {})), store),
+      ),
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.startNew();
     controller.addOrReplaceItem(
@@ -115,11 +127,20 @@ void main() {
 
   test('invalid line prevents save and is not dropped', () async {
     final controller = OrderEditController(
-      orders: OrderRepository(client(ScriptedAdapter((_) async => ScriptedHttp(200, orderJson())), store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      orders: OrderRepository(
+        client(
+          ScriptedAdapter((_) async => ScriptedHttp(200, orderJson())),
+          store,
+        ),
+      ),
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.startNew();
-    controller.selectCustomer(const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'));
+    controller.selectCustomer(
+      const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'),
+    );
     controller.addOrReplaceItem(
       LocalOrderItem(
         productId: 'APPLE',
@@ -134,49 +155,60 @@ void main() {
     expect(controller.state.items.single.lineError, isNotNull);
   });
 
-  test('create draft sends Idempotency-Key and retries keep the same key', () async {
-    final keys = <String>[];
-    final adapter = ScriptedAdapter((options) async {
-      keys.add(options.headers['Idempotency-Key']?.toString() ?? '');
-      return ScriptedHttp(200, orderJson());
-    });
-    final controller = OrderEditController(
-      orders: OrderRepository(client(adapter, store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
-      keyFactory: () => 'fixed-key',
-    );
-    controller.startNew();
-    controller.selectCustomer(const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'));
-    controller.addOrReplaceItem(
-      LocalOrderItem(
-        productId: 'APPLE',
-        itemCode: 'APPLE-80',
-        productName: '苹果80果',
-        qty: Decimal.parse('20'),
-        uom: '箱',
-        rate: Decimal.parse('68'),
-      ),
-    );
-    await controller.saveDraft();
-    expect(controller.state.orderId, 'SAL-ORD-001');
-    expect(controller.state.isNew, isFalse);
-    controller.state.dirty = true;
-    await controller.saveDraft();
-    expect(keys.first, 'fixed-key');
-  });
+  test(
+    'create draft sends Idempotency-Key and retries keep the same key',
+    () async {
+      final keys = <String>[];
+      final adapter = ScriptedAdapter((options) async {
+        keys.add(options.headers['Idempotency-Key']?.toString() ?? '');
+        return ScriptedHttp(200, orderJson());
+      });
+      final controller = OrderEditController(
+        orders: OrderRepository(client(adapter, store)),
+        loadLastDeal:
+            ({required customerId, required itemCode, required uom}) async =>
+                null,
+        keyFactory: () => 'fixed-key',
+      );
+      controller.startNew();
+      controller.selectCustomer(
+        const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'),
+      );
+      controller.addOrReplaceItem(
+        LocalOrderItem(
+          productId: 'APPLE',
+          itemCode: 'APPLE-80',
+          productName: '苹果80果',
+          qty: Decimal.parse('20'),
+          uom: '箱',
+          rate: Decimal.parse('68'),
+        ),
+      );
+      await controller.saveDraft();
+      expect(controller.state.orderId, 'SAL-ORD-001');
+      expect(controller.state.isNew, isFalse);
+      controller.state.dirty = true;
+      await controller.saveDraft();
+      expect(keys.first, 'fixed-key');
+    },
+  );
 
   test('update sends expectedModifiedAt', () async {
     DateTime? sent;
     final adapter = ScriptedAdapter((options) async {
       if (options.method == 'PUT') {
-        sent = DateTime.parse((options.data as Map)['expectedModifiedAt'] as String);
+        sent = DateTime.parse(
+          (options.data as Map)['expectedModifiedAt'] as String,
+        );
         return ScriptedHttp(200, orderJson(qty: '30'));
       }
       return ScriptedHttp(200, orderJson());
     });
     final controller = OrderEditController(
       orders: OrderRepository(client(adapter, store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.loadExisting(Order.fromJson(orderJson()));
     controller.state.dirty = true;
@@ -196,7 +228,9 @@ void main() {
     });
     final controller = OrderEditController(
       orders: OrderRepository(client(adapter, store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.loadExisting(Order.fromJson(orderJson()));
     controller.state.dirty = true;
@@ -216,10 +250,14 @@ void main() {
     });
     final controller = OrderEditController(
       orders: OrderRepository(client(adapter, store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.startNew();
-    controller.selectCustomer(const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'));
+    controller.selectCustomer(
+      const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'),
+    );
     controller.addOrReplaceItem(
       LocalOrderItem(
         productId: 'APPLE',
@@ -232,7 +270,10 @@ void main() {
     );
     final submitted = await controller.submit();
     expect(submitted?.orderStatus, OrderStatus.submitted);
-    expect(paths, ['POST /api/v1/orders', 'POST /api/v1/orders/SAL-ORD-001/submit']);
+    expect(paths, [
+      'POST /api/v1/orders',
+      'POST /api/v1/orders/SAL-ORD-001/submit',
+    ]);
   });
 
   test('submit second step failure keeps created draft', () async {
@@ -249,10 +290,14 @@ void main() {
     });
     final controller = OrderEditController(
       orders: OrderRepository(client(adapter, store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.startNew();
-    controller.selectCustomer(const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'));
+    controller.selectCustomer(
+      const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'),
+    );
     controller.addOrReplaceItem(
       LocalOrderItem(
         productId: 'APPLE',
@@ -272,14 +317,19 @@ void main() {
   test('UOM switch changes last-deal context', () async {
     String? queriedUom;
     final controller = OrderEditController(
-      orders: OrderRepository(client(ScriptedAdapter((_) async => ScriptedHttp(200, {})), store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async {
-        queriedUom = uom;
-        return LastDealPrice(price: Decimal.parse('3.80'), uom: uom);
-      },
+      orders: OrderRepository(
+        client(ScriptedAdapter((_) async => ScriptedHttp(200, {})), store),
+      ),
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async {
+            queriedUom = uom;
+            return LastDealPrice(price: Decimal.parse('3.80'), uom: uom);
+          },
     );
     controller.startNew();
-    controller.selectCustomer(const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'));
+    controller.selectCustomer(
+      const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'),
+    );
     final item = LocalOrderItem(
       productId: 'APPLE',
       itemCode: 'APPLE-80',
@@ -299,11 +349,51 @@ void main() {
     expect(queriedUom, '斤');
   });
 
+  test(
+    'UOM switch clears an old rate when the new UOM has no reference price',
+    () async {
+      final controller = OrderEditController(
+        orders: OrderRepository(
+          client(ScriptedAdapter((_) async => ScriptedHttp(200, {})), store),
+        ),
+        loadLastDeal:
+            ({required customerId, required itemCode, required uom}) async =>
+                LastDealPrice(price: Decimal.parse('3.80'), uom: uom),
+      );
+      controller.startNew();
+      controller.selectCustomer(
+        const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'),
+      );
+      final item = LocalOrderItem(
+        productId: 'APPLE',
+        itemCode: 'APPLE-80',
+        productName: '苹果80果',
+        uom: '箱',
+        rate: Decimal.parse('68'),
+        allowedUoms: [
+          AllowedUom(uom: '箱', referencePrice: Decimal.parse('68')),
+          AllowedUom(uom: '斤'),
+        ],
+      );
+
+      await controller.applyUom(item, '斤');
+
+      expect(item.referencePrice, isNull);
+      expect(item.rate, isNull);
+      expect(item.lastDealPrice, Decimal.parse('3.80'));
+    },
+  );
+
   test('list search uses server q', () async {
     String? q;
     final adapter = ScriptedAdapter((options) async {
       q = options.queryParameters['q']?.toString();
-      return ScriptedHttp(200, {'content': [], 'page': 1, 'pageSize': 20, 'hasMore': false});
+      return ScriptedHttp(200, {
+        'content': [],
+        'page': 1,
+        'pageSize': 20,
+        'hasMore': false,
+      });
     });
     await OrderRepository(client(adapter, store)).list(q: '韩兆亮');
     expect(q, '韩兆亮');
@@ -322,10 +412,14 @@ void main() {
     });
     final controller = OrderEditController(
       orders: OrderRepository(client(adapter, store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.startNew();
-    controller.selectCustomer(const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'));
+    controller.selectCustomer(
+      const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'),
+    );
     controller.addOrReplaceItem(
       LocalOrderItem(
         productId: 'APPLE',
@@ -352,7 +446,9 @@ void main() {
     });
     final controller = OrderEditController(
       orders: OrderRepository(client(adapter, store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.loadExisting(Order.fromJson(orderJson(status: 'SUBMITTED')));
     expect(controller.state.readOnly, isTrue);
@@ -380,10 +476,14 @@ void main() {
     });
     final controller = OrderEditController(
       orders: OrderRepository(client(adapter, store)),
-      loadLastDeal: ({required customerId, required itemCode, required uom}) async => null,
+      loadLastDeal:
+          ({required customerId, required itemCode, required uom}) async =>
+              null,
     );
     controller.startNew();
-    controller.selectCustomer(const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'));
+    controller.selectCustomer(
+      const CustomerSummary(customerId: 'CUST-HAN', customerName: '韩兆亮'),
+    );
     controller.addOrReplaceItem(
       LocalOrderItem(
         productId: 'APPLE',

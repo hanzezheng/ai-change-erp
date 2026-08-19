@@ -25,7 +25,8 @@ void main() {
       expect(options.path, '/api/v1/auth/login');
       return ScriptedHttp(200, tokenJson());
     });
-    final repo = AuthRepository(api: buildClient(adapter, store), tokenStore: store);
+    final repo =
+        AuthRepository(api: buildClient(adapter, store), tokenStore: store);
     final session = await repo.login(login: 'chen', password: 'secret');
     expect(session.accessToken, 'access-1');
     expect(await store.readRefreshToken(), 'refresh-1');
@@ -42,10 +43,12 @@ void main() {
         'details': {},
       });
     });
-    final repo = AuthRepository(api: buildClient(adapter, store), tokenStore: store);
+    final repo =
+        AuthRepository(api: buildClient(adapter, store), tokenStore: store);
     await expectLater(
       repo.login(login: 'chen', password: 'bad'),
-      throwsA(isA<ApiException>().having((e) => e.code, 'code', 'AUTHENTICATION_FAILED')),
+      throwsA(isA<ApiException>()
+          .having((e) => e.code, 'code', 'AUTHENTICATION_FAILED')),
     );
   });
 
@@ -64,7 +67,8 @@ void main() {
         },
       });
     });
-    final repo = AuthRepository(api: buildClient(adapter, store), tokenStore: store);
+    final repo =
+        AuthRepository(api: buildClient(adapter, store), tokenStore: store);
     try {
       await repo.login(login: 'chen', password: 'secret');
       fail('expected exception');
@@ -77,13 +81,15 @@ void main() {
 
   test('bootstrap refresh success replaces session', () async {
     final store = MemoryTokenStore();
-    await store.saveSession(AuthSession.fromTokenResponse(tokenJson(access: 'old-a', refresh: 'old-r')));
+    await store.saveSession(AuthSession.fromTokenResponse(
+        tokenJson(access: 'old-a', refresh: 'old-r')));
     final adapter = ScriptedAdapter((options) async {
       expect(options.path, '/api/v1/auth/refresh');
       expect((options.data as Map)['refreshToken'], 'old-r');
       return ScriptedHttp(200, tokenJson(access: 'new-a', refresh: 'new-r'));
     });
-    final repo = AuthRepository(api: buildClient(adapter, store), tokenStore: store);
+    final repo =
+        AuthRepository(api: buildClient(adapter, store), tokenStore: store);
     final session = await repo.refresh();
     expect(session.accessToken, 'new-a');
     expect(await store.readRefreshToken(), 'new-r');
@@ -100,7 +106,8 @@ void main() {
         'details': {},
       });
     });
-    final repo = AuthRepository(api: buildClient(adapter, store), tokenStore: store);
+    final repo =
+        AuthRepository(api: buildClient(adapter, store), tokenStore: store);
     await expectLater(repo.refresh(), throwsA(isA<ApiException>()));
     expect(await store.readSession(), isNull);
     expect(store.accessToken, isNull);
@@ -108,7 +115,8 @@ void main() {
 
   test('concurrent 401 only causes one refresh and rotates tokens', () async {
     final store = MemoryTokenStore();
-    await store.saveSession(AuthSession.fromTokenResponse(tokenJson(access: 'old-a', refresh: 'old-r')));
+    await store.saveSession(AuthSession.fromTokenResponse(
+        tokenJson(access: 'old-a', refresh: 'old-r')));
     var refreshCount = 0;
     final adapter = ScriptedAdapter((options) async {
       if (options.path.contains('/auth/refresh')) {
@@ -117,7 +125,9 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 40));
         return ScriptedHttp(200, tokenJson(access: 'new-a', refresh: 'new-r'));
       }
-      if ((options.headers['Authorization'] ?? options.headers['authorization']) == 'Bearer old-a') {
+      if ((options.headers['Authorization'] ??
+              options.headers['authorization']) ==
+          'Bearer old-a') {
         return ScriptedHttp(401, {
           'code': 'TOKEN_EXPIRED',
           'message': '访问令牌已过期',
@@ -143,6 +153,83 @@ void main() {
     expect(await store.readRefreshToken(), 'new-r');
   });
 
+  test('a retried 401 refreshes at most once and clears the session', () async {
+    final store = MemoryTokenStore();
+    await store.saveSession(AuthSession.fromTokenResponse(
+        tokenJson(access: 'old-a', refresh: 'old-r')));
+    var refreshCount = 0;
+    final adapter = ScriptedAdapter((options) async {
+      if (options.path.endsWith('/auth/refresh')) {
+        refreshCount += 1;
+        return ScriptedHttp(200, tokenJson(access: 'new-a', refresh: 'new-r'));
+      }
+      return ScriptedHttp(401, {
+        'code': 'TOKEN_EXPIRED',
+        'message': '访问令牌已过期',
+        'traceId': 'retry-401',
+        'details': {},
+      });
+    });
+    final client = buildClient(adapter, store);
+
+    await expectLater(
+        client.get('/api/v1/orders'), throwsA(isA<ApiException>()));
+    expect(refreshCount, 1);
+    expect(await store.readSession(), isNull);
+  });
+
+  test('logout retry uses the rotated refresh token and clears local session',
+      () async {
+    final store = MemoryTokenStore();
+    await store.saveSession(AuthSession.fromTokenResponse(
+        tokenJson(access: 'old-a', refresh: 'old-r')));
+    final logoutBodies = <String>[];
+    final adapter = ScriptedAdapter((options) async {
+      if (options.path.endsWith('/auth/logout')) {
+        logoutBodies.add((options.data as Map)['refreshToken'].toString());
+        if (logoutBodies.length == 1) {
+          return ScriptedHttp(401, {
+            'code': 'TOKEN_EXPIRED',
+            'message': '访问令牌已过期',
+            'traceId': 'logout-expired',
+            'details': {},
+          });
+        }
+        return ScriptedHttp(200, {});
+      }
+      if (options.path.endsWith('/auth/refresh')) {
+        expect((options.data as Map)['refreshToken'], 'old-r');
+        return ScriptedHttp(200, tokenJson(access: 'new-a', refresh: 'new-r'));
+      }
+      return ScriptedHttp(
+          500, {'code': 'INTERNAL_ERROR', 'message': 'unexpected'});
+    });
+    final repo =
+        AuthRepository(api: buildClient(adapter, store), tokenStore: store);
+
+    await repo.logout();
+    expect(logoutBodies, ['old-r', 'new-r']);
+    expect(await store.readSession(), isNull);
+  });
+
+  test('logout sends the refresh token currently in the store', () async {
+    final store = MemoryTokenStore();
+    await store.saveSession(AuthSession.fromTokenResponse(
+        tokenJson(access: 'access-a', refresh: 'refresh-a')));
+    String? sent;
+    final adapter = ScriptedAdapter((options) async {
+      expect(options.path, '/api/v1/auth/logout');
+      sent = (options.data as Map)['refreshToken']?.toString();
+      return ScriptedHttp(200, {});
+    });
+    final repo =
+        AuthRepository(api: buildClient(adapter, store), tokenStore: store);
+
+    await repo.logout();
+    expect(sent, 'refresh-a');
+    expect(await store.readSession(), isNull);
+  });
+
   test('logout network failure keeps session until local clear', () async {
     final store = MemoryTokenStore();
     await store.saveSession(AuthSession.fromTokenResponse(tokenJson()));
@@ -155,7 +242,8 @@ void main() {
         'details': {},
       });
     });
-    final repo = AuthRepository(api: buildClient(adapter, store), tokenStore: store);
+    final repo =
+        AuthRepository(api: buildClient(adapter, store), tokenStore: store);
     await expectLater(repo.logout(), throwsA(isA<ApiException>()));
     expect(await store.readRefreshToken(), 'refresh-1');
     await repo.clearLocal();

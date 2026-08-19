@@ -21,7 +21,8 @@ class CustomerSelectorSheet extends ConsumerStatefulWidget {
   const CustomerSelectorSheet({super.key});
 
   @override
-  ConsumerState<CustomerSelectorSheet> createState() => _CustomerSelectorSheetState();
+  ConsumerState<CustomerSelectorSheet> createState() =>
+      _CustomerSelectorSheetState();
 }
 
 class _CustomerSelectorSheetState extends ConsumerState<CustomerSelectorSheet> {
@@ -30,6 +31,7 @@ class _CustomerSelectorSheetState extends ConsumerState<CustomerSelectorSheet> {
   CustomerSelectorResult? _data;
   String? _error;
   bool _loading = true;
+  int _requestGeneration = 0;
 
   @override
   void initState() {
@@ -40,18 +42,29 @@ class _CustomerSelectorSheetState extends ConsumerState<CustomerSelectorSheet> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _requestGeneration++;
     _controller.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({int? generation}) async {
+    if (!mounted) {
+      return;
+    }
+    if (generation != null && generation != _requestGeneration) {
+      return;
+    }
+    final requestGeneration = generation ?? ++_requestGeneration;
+    final query = _controller.text.trim();
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final result = await ref.read(customerRepositoryProvider).selector(q: _controller.text.trim());
-      if (!mounted) {
+      final result = await ref
+          .read(customerRepositoryProvider)
+          .selector(q: query);
+      if (!mounted || requestGeneration != _requestGeneration) {
         return;
       }
       setState(() {
@@ -59,7 +72,7 @@ class _CustomerSelectorSheetState extends ConsumerState<CustomerSelectorSheet> {
         _loading = false;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || requestGeneration != _requestGeneration) {
         return;
       }
       setState(() {
@@ -70,8 +83,14 @@ class _CustomerSelectorSheetState extends ConsumerState<CustomerSelectorSheet> {
   }
 
   void _onQuery(String value) {
+    // Invalidate an older in-flight query immediately; waiting for debounce
+    // would still allow a late response to replace the current results.
+    final generation = ++_requestGeneration;
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 400), _load);
+    _debounce = Timer(
+      const Duration(milliseconds: 400),
+      () => _load(generation: generation),
+    );
   }
 
   @override
@@ -79,7 +98,9 @@ class _CustomerSelectorSheetState extends ConsumerState<CustomerSelectorSheet> {
     final recent = _data?.recent ?? const <CustomerSummary>[];
     final results = _data?.results ?? const <CustomerSummary>[];
     final recentIds = recent.map((item) => item.customerId).toSet();
-    final rest = results.where((item) => !recentIds.contains(item.customerId)).toList();
+    final rest = results
+        .where((item) => !recentIds.contains(item.customerId))
+        .toList();
 
     return Column(
       children: [
@@ -90,25 +111,29 @@ class _CustomerSelectorSheetState extends ConsumerState<CustomerSelectorSheet> {
             child: Text('选择客户', style: AppTextStyles.appBarTitle),
           ),
         ),
-        AppSearchField(controller: _controller, hint: '搜索姓名、称呼、电话', onChanged: _onQuery),
+        AppSearchField(
+          controller: _controller,
+          hint: '搜索姓名、称呼、电话',
+          onChanged: _onQuery,
+        ),
         Expanded(
           child: _loading
               ? const LoadingState()
               : _error != null
-                  ? ErrorState(message: _error!, onRetry: _load)
-                  : ListView(
-                      children: [
-                        if (recent.isNotEmpty) ...[
-                          const SectionHeader(title: '最近交易'),
-                          ...recent.map(_row),
-                        ],
-                        const SectionHeader(title: '全部客户'),
-                        if (rest.isEmpty && recent.isEmpty)
-                          const EmptyState(message: '暂无客户')
-                        else
-                          ...rest.map(_row),
-                      ],
-                    ),
+              ? ErrorState(message: _error!, onRetry: _load)
+              : ListView(
+                  children: [
+                    if (recent.isNotEmpty) ...[
+                      const SectionHeader(title: '最近交易'),
+                      ...recent.map(_row),
+                    ],
+                    const SectionHeader(title: '全部客户'),
+                    if (rest.isEmpty && recent.isEmpty)
+                      const EmptyState(message: '暂无客户')
+                    else
+                      ...rest.map(_row),
+                  ],
+                ),
         ),
       ],
     );

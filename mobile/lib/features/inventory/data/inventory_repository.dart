@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import '../../../core/api/api_client.dart';
 import '../../../core/api/page_result.dart';
 import 'inventory_models.dart';
@@ -13,6 +15,7 @@ class InventoryRepository {
     String? warehouseId,
     int page = 1,
     int pageSize = 20,
+    CancelToken? cancelToken,
   }) {
     return _api.getJson(
       '/api/v1/inventory',
@@ -23,6 +26,7 @@ class InventoryRepository {
         'page': page,
         'pageSize': pageSize,
       },
+      cancelToken: cancelToken,
       parse: (json) => PageResult.fromJson(
         Map<String, dynamic>.from(json as Map),
         InventoryItem.fromJson,

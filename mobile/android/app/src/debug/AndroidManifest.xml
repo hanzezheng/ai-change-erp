@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Local Spring Boot development may use http://10.0.2.2 or a LAN address.
+         This overlay is debug-only; release/main keeps cleartext disabled. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

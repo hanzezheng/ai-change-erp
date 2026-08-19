@@ -114,7 +114,8 @@ class OrderEditState {
   bool get isNew => orderId == null;
   bool get readOnly => orderStatus != OrderStatus.draft;
 
-  Decimal get localTotal => items.fold(Decimal.zero, (sum, item) => sum + item.subtotal);
+  Decimal get localTotal =>
+      items.fold(Decimal.zero, (sum, item) => sum + item.subtotal);
 
   OrderEditState copy() {
     return OrderEditState(
@@ -146,21 +147,25 @@ class OrderEditController {
       required String customerId,
       required String itemCode,
       required String uom,
-    }) loadLastDeal,
+    })
+    loadLastDeal,
     String Function()? keyFactory,
-  })  : _orders = orders,
-        _loadLastDeal = loadLastDeal,
-        _keyFactory = keyFactory ?? const Uuid().v4;
+  }) : _orders = orders,
+       _loadLastDeal = loadLastDeal,
+       _keyFactory = keyFactory ?? const Uuid().v4;
 
   final OrderRepository _orders;
   final Future<LastDealPrice?> Function({
     required String customerId,
     required String itemCode,
     required String uom,
-  }) _loadLastDeal;
+  })
+  _loadLastDeal;
   final String Function() _keyFactory;
 
-  late OrderEditState state = OrderEditState(createIdempotencyKey: _keyFactory());
+  late OrderEditState state = OrderEditState(
+    createIdempotencyKey: _keyFactory(),
+  );
 
   void startNew({String? customerId, String? customerName}) {
     state = OrderEditState(
@@ -207,7 +212,9 @@ class OrderEditController {
   }
 
   void addOrReplaceItem(LocalOrderItem item, {int? replaceIndex}) {
-    if (replaceIndex != null && replaceIndex >= 0 && replaceIndex < state.items.length) {
+    if (replaceIndex != null &&
+        replaceIndex >= 0 &&
+        replaceIndex < state.items.length) {
       state.items[replaceIndex] = item;
     } else {
       state.items.add(item);
@@ -226,9 +233,10 @@ class OrderEditController {
     final info = item.allowedUoms.where((u) => u.uom == uom).firstOrNull;
     item.referencePrice = info?.referencePrice;
     item.lastDealPrice = null;
-    if (item.referencePrice != null) {
-      item.rate = item.referencePrice;
-    }
+    // A UOM change starts a new price context.  Clear an old rate even when
+    // the selected UOM has no reference price; carrying the previous UOM's
+    // amount would create a misleading order line.
+    item.rate = item.referencePrice;
     final customerId = state.customerId;
     if (customerId != null && customerId.isNotEmpty) {
       final last = await _loadLastDeal(
@@ -312,7 +320,8 @@ class OrderEditController {
     }
   }
 
-  DateTime savedOrToday() => state.transactionDate ?? BusinessTime.shanghaiNow();
+  DateTime savedOrToday() =>
+      state.transactionDate ?? BusinessTime.shanghaiNow();
 
   Future<Order?> submit() async {
     if (state.readOnly) {

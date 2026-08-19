@@ -35,6 +35,29 @@ void main() {
     expect(methods.single.paymentMethodName, 'Cash');
   });
 
+  test('payment methods are not reused across tenant/session changes',
+      () async {
+    var requestCount = 0;
+    final repo = PaymentRepository(client(ScriptedAdapter((options) async {
+      expect(options.path, '/api/v1/payment-methods');
+      requestCount += 1;
+      return ScriptedHttp(200, [
+        {
+          'paymentMethodId': requestCount == 1 ? 'Cash-A' : 'Cash-B',
+          'paymentMethodName': requestCount == 1 ? 'A现金' : 'B现金',
+        },
+      ]);
+    })));
+
+    final tenantAMethods = await repo.methods();
+    // The provider/repository may survive logout and a subsequent tenant
+    // login.  A second call must hit the backend instead of returning A.
+    final tenantBMethods = await repo.methods();
+    expect(requestCount, 2);
+    expect(tenantAMethods.single.paymentMethodId, 'Cash-A');
+    expect(tenantBMethods.single.paymentMethodId, 'Cash-B');
+  });
+
   test('create pending payment posts once with idempotency key', () async {
     String? key;
     final repo = PaymentRepository(client(ScriptedAdapter((options) async {
@@ -135,14 +158,16 @@ void main() {
       idempotencyKey: 'pay-3',
     );
     expect(created.paymentId, 'PE-9');
-    await expectLater(repo.confirm(created.paymentId), throwsA(isA<ApiException>()));
+    await expectLater(
+        repo.confirm(created.paymentId), throwsA(isA<ApiException>()));
   });
 
   test('payment history requires relatedOrderId', () async {
     String? related;
     final repo = PaymentRepository(client(ScriptedAdapter((options) async {
       related = options.queryParameters['relatedOrderId']?.toString();
-      return ScriptedHttp(200, {'content': [], 'page': 1, 'pageSize': 20, 'hasMore': false});
+      return ScriptedHttp(
+          200, {'content': [], 'page': 1, 'pageSize': 20, 'hasMore': false});
     })));
     await repo.list(relatedOrderId: 'SO-1');
     expect(related, 'SO-1');
@@ -180,7 +205,8 @@ void main() {
     expect(selector.recent.single.customerId, 'CUST-HAN');
   });
 
-  test('inventory search is server-side and null lowStock is preserved', () async {
+  test('inventory search is server-side and null lowStock is preserved',
+      () async {
     bool? low;
     String? q;
     final repo = InventoryRepository(client(ScriptedAdapter((options) async {
@@ -231,7 +257,8 @@ void main() {
         paymentMethodId: 'Cash',
         idempotencyKey: 'pay-unknown',
       ),
-      throwsA(isA<ApiException>().having((e) => e.code, 'code', 'IDEMPOTENCY_OUTCOME_UNKNOWN')),
+      throwsA(isA<ApiException>()
+          .having((e) => e.code, 'code', 'IDEMPOTENCY_OUTCOME_UNKNOWN')),
     );
     expect(posts, 1);
   });

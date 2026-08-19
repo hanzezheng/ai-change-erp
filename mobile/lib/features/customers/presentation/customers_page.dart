@@ -27,7 +27,10 @@ class _CustomersPageState extends ConsumerState<CustomersPage> {
   int _page = 1;
   bool _hasMore = false;
   bool _loading = true;
+  bool _loadingMore = false;
+  String? _loadMoreError;
   String? _error;
+  int _requestGeneration = 0;
 
   @override
   void initState() {
@@ -38,24 +41,45 @@ class _CustomersPageState extends ConsumerState<CustomersPage> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _requestGeneration++;
     _search.dispose();
     super.dispose();
   }
 
-  Future<void> _load({required bool reset}) async {
+  Future<void> _load({required bool reset, int? generation}) async {
+    if (!mounted) {
+      return;
+    }
+    if (generation != null && generation != _requestGeneration) {
+      return;
+    }
+    if (!reset && (_loadingMore || !_hasMore)) {
+      return;
+    }
+    final requestGeneration = generation ?? ++_requestGeneration;
+    final requestedPage = reset ? 1 : _page + 1;
+    final query = _search.text.trim();
     if (reset) {
       setState(() {
         _loading = true;
+        _loadingMore = false;
         _error = null;
+        _loadMoreError = null;
         _page = 1;
+        _hasMore = false;
+        _items.clear();
+      });
+    } else {
+      setState(() {
+        _loadingMore = true;
+        _loadMoreError = null;
       });
     }
     try {
-      final result = await ref.read(customerRepositoryProvider).list(
-            q: _search.text.trim().isEmpty ? null : _search.text.trim(),
-            page: reset ? 1 : _page,
-          );
-      if (!mounted) {
+      final result = await ref
+          .read(customerRepositoryProvider)
+          .list(q: query.isEmpty ? null : query, page: requestedPage);
+      if (!mounted || requestGeneration != _requestGeneration) {
         return;
       }
       setState(() {
@@ -66,18 +90,41 @@ class _CustomersPageState extends ConsumerState<CustomersPage> {
         } else {
           _items.addAll(result.content);
         }
+        // Commit the cursor only after the requested page was received.
+        _page = requestedPage;
         _hasMore = result.hasMore;
         _loading = false;
+        _loadingMore = false;
+        _loadMoreError = null;
+        _error = null;
       });
     } catch (_) {
-      if (!mounted) {
+      if (!mounted || requestGeneration != _requestGeneration) {
         return;
       }
       setState(() {
-        _error = '客户暂时无法加载';
-        _loading = false;
+        if (reset) {
+          _error = '客户暂时无法加载';
+          _loading = false;
+        } else {
+          // Keep already loaded customers visible and make the failed page
+          // retryable without advancing _page.
+          _loadMoreError = '更多客户加载失败';
+        }
+        _loadingMore = false;
       });
     }
+  }
+
+  void _onSearchChanged(String value) {
+    // Invalidate an in-flight response immediately, before the debounce
+    // elapses.  Otherwise a slow old query can repaint the new query's list.
+    final generation = ++_requestGeneration;
+    _debounce?.cancel();
+    _debounce = Timer(
+      const Duration(milliseconds: 400),
+      () => _load(reset: true, generation: generation),
+    );
   }
 
   @override
@@ -99,10 +146,7 @@ class _CustomersPageState extends ConsumerState<CustomersPage> {
                 AppSearchField(
                   controller: _search,
                   hint: '搜索姓名、称呼、电话',
-                  onChanged: (_) {
-                    _debounce?.cancel();
-                    _debounce = Timer(const Duration(milliseconds: 400), () => _load(reset: true));
-                  },
+                  onChanged: _onSearchChanged,
                 ),
               ],
             ),
@@ -114,48 +158,85 @@ class _CustomersPageState extends ConsumerState<CustomersPage> {
               child: _loading
                   ? const LoadingState()
                   : _error != null
-                      ? ErrorState(message: _error!, onRetry: () => _load(reset: true))
-                      : _items.isEmpty
-                          ? ListView(
-                              children: [
-                                SizedBox(
-                                  height: 240,
-                                  child: EmptyState(
-                                    message: _search.text.isEmpty ? '暂无客户' : '没有找到相关结果',
-                                  ),
+                  ? ErrorState(
+                      message: _error!,
+                      onRetry: () => _load(reset: true),
+                    )
+                  : _items.isEmpty
+                  ? ListView(
+                      children: [
+                        SizedBox(
+                          height: 240,
+                          child: EmptyState(
+                            message: _search.text.isEmpty ? '暂无客户' : '没有找到相关结果',
+                          ),
+                        ),
+                      ],
+                    )
+                  : NotificationListener<ScrollNotification>(
+                      onNotification: (n) {
+                        if (n.metrics.pixels > n.metrics.maxScrollExtent - 80 &&
+                            _hasMore &&
+                            !_loadingMore &&
+                            _loadMoreError == null) {
+                          _load(reset: false);
+                        }
+                        return false;
+                      },
+                      child: ListView.separated(
+                        itemCount:
+                            _items.length +
+                            (_loadingMore || _loadMoreError != null ? 1 : 0),
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          if (index >= _items.length) {
+                            if (_loadMoreError != null) {
+                              return TextButton(
+                                onPressed: () => _load(reset: false),
+                                child: Text(_loadMoreError!),
+                              );
+                            }
+                            return const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
                                 ),
-                              ],
-                            )
-                          : NotificationListener<ScrollNotification>(
-                              onNotification: (n) {
-                                if (n.metrics.pixels > n.metrics.maxScrollExtent - 80 && _hasMore && !_loading) {
-                                  _page += 1;
-                                  _load(reset: false);
-                                }
-                                return false;
-                              },
-                              child: ListView.separated(
-                                itemCount: _items.length,
-                                separatorBuilder: (_, __) => const Divider(height: 1),
-                                itemBuilder: (context, index) {
-                                  final customer = _items[index];
-                                  final extras = [
-                                    if (customer.aliases.isNotEmpty) customer.aliases.take(2).join(' · '),
-                                    if (customer.phone != null && customer.phone!.isNotEmpty) customer.phone!,
-                                  ].join('  ');
-                                  return ColoredBox(
-                                    color: AppColors.surface,
-                                    child: ListTile(
-                                      title: Text(customer.customerName, style: AppTextStyles.bodyStrong),
-                                      subtitle: extras.isEmpty ? null : Text(extras, style: AppTextStyles.tertiary),
-                                      onTap: () => context.push(
-                                        '/customers/${Uri.encodeComponent(customer.customerId)}',
+                              ),
+                            );
+                          }
+                          final customer = _items[index];
+                          final extras = [
+                            if (customer.aliases.isNotEmpty)
+                              customer.aliases.take(2).join(' · '),
+                            if (customer.phone != null &&
+                                customer.phone!.isNotEmpty)
+                              customer.phone!,
+                          ].join('  ');
+                          return ColoredBox(
+                            color: AppColors.surface,
+                            child: Material(
+                              color: AppColors.surface,
+                              child: ListTile(
+                                title: Text(
+                                  customer.customerName,
+                                  style: AppTextStyles.bodyStrong,
+                                ),
+                                subtitle: extras.isEmpty
+                                    ? null
+                                    : Text(
+                                        extras,
+                                        style: AppTextStyles.tertiary,
                                       ),
-                                    ),
-                                  );
-                                },
+                                onTap: () => context.push(
+                                  '/customers/${Uri.encodeComponent(customer.customerId)}',
+                                ),
                               ),
                             ),
+                          );
+                        },
+                      ),
+                    ),
             ),
           ),
         ],
@@ -186,7 +267,9 @@ class _CustomerDetailPageState extends ConsumerState<CustomerDetailPage> {
 
   Future<void> _load() async {
     try {
-      final customer = await ref.read(customerRepositoryProvider).getById(widget.customerId);
+      final customer = await ref
+          .read(customerRepositoryProvider)
+          .getById(widget.customerId);
       if (!mounted) {
         return;
       }
@@ -210,50 +293,65 @@ class _CustomerDetailPageState extends ConsumerState<CustomerDetailPage> {
       body: _loading
           ? const LoadingState()
           : _error != null || customer == null
-              ? ErrorState(message: _error ?? '客户不存在', onRetry: _load)
-              : ListView(
-                  children: [
-                    ColoredBox(
-                      color: AppColors.surface,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(customer.customerName, style: AppTextStyles.greeting),
-                            if (customer.aliases.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 6,
-                                children: [
-                                  for (final alias in customer.aliases)
-                                    Chip(
-                                      label: Text(alias, style: AppTextStyles.tertiary),
-                                      visualDensity: VisualDensity.compact,
-                                      backgroundColor: AppColors.background,
-                                      side: const BorderSide(color: AppColors.border),
-                                    ),
-                                ],
-                              ),
-                            ],
-                          ],
+          ? ErrorState(message: _error ?? '客户不存在', onRetry: _load)
+          : ListView(
+              children: [
+                ColoredBox(
+                  color: AppColors.surface,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          customer.customerName,
+                          style: AppTextStyles.greeting,
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    ColoredBox(
-                      color: AppColors.surface,
-                      child: Column(
-                        children: [
-                          if (customer.phone != null && customer.phone!.isNotEmpty)
-                            ListTile(title: const Text('电话'), subtitle: Text(customer.phone!)),
-                          if (customer.address != null && customer.address!.isNotEmpty)
-                            ListTile(title: const Text('地址'), subtitle: Text(customer.address!)),
+                        if (customer.aliases.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            children: [
+                              for (final alias in customer.aliases)
+                                Chip(
+                                  label: Text(
+                                    alias,
+                                    style: AppTextStyles.tertiary,
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                  backgroundColor: AppColors.background,
+                                  side: const BorderSide(
+                                    color: AppColors.border,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ],
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
+                const SizedBox(height: 8),
+                ColoredBox(
+                  color: AppColors.surface,
+                  child: Column(
+                    children: [
+                      if (customer.phone != null && customer.phone!.isNotEmpty)
+                        ListTile(
+                          title: const Text('电话'),
+                          subtitle: Text(customer.phone!),
+                        ),
+                      if (customer.address != null &&
+                          customer.address!.isNotEmpty)
+                        ListTile(
+                          title: const Text('地址'),
+                          subtitle: Text(customer.address!),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
       bottomAction: customer == null
           ? null
           : BusinessActionBar(

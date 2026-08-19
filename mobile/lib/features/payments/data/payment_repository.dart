@@ -9,12 +9,11 @@ class PaymentRepository {
   PaymentRepository(this._api);
 
   final ApiClient _api;
-  List<PaymentMethod>? _cachedMethods;
 
+  /// Payment methods are tenant-scoped ERP data.  Do not cache them in the
+  /// process-wide repository: the provider lives for the whole app session and
+  /// can outlive a logout/login or tenant switch.
   Future<List<PaymentMethod>> methods({bool force = false}) async {
-    if (!force && _cachedMethods != null) {
-      return _cachedMethods!;
-    }
     final result = await _api.getJson(
       '/api/v1/payment-methods',
       parse: (json) {
@@ -23,11 +22,12 @@ class PaymentRepository {
         }
         return json
             .whereType<Map>()
-            .map((item) => PaymentMethod.fromJson(Map<String, dynamic>.from(item)))
+            .map(
+              (item) => PaymentMethod.fromJson(Map<String, dynamic>.from(item)),
+            )
             .toList();
       },
     );
-    _cachedMethods = result;
     return result;
   }
 
@@ -71,7 +71,9 @@ class PaymentRepository {
   }
 
   Future<Payment> confirm(String paymentId) async {
-    final response = await _api.post('/api/v1/payments/${Uri.encodeComponent(paymentId)}/confirm');
+    final response = await _api.post(
+      '/api/v1/payments/${Uri.encodeComponent(paymentId)}/confirm',
+    );
     return Payment.fromJson(Map<String, dynamic>.from(response.data as Map));
   }
 }
