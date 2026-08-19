@@ -16,6 +16,9 @@
 
 状态：已完成（只读链路）。
 
+Phase 1B：已用官方 `frappe_docker` 标准 ERPNext v16 做真实 Smoke Test；
+路径空格编码缺陷已修复。未进入 PostgreSQL / 写链路 / Flutter / AI。
+
 ### Phase 2：SaaS 基础
 
 - PostgreSQL

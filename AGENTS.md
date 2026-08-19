@@ -480,16 +480,18 @@ Tenant 通过：
 
 # 20. ERPNext 多租户部署模型
 
-当前 ERPNext Tenant 部署方式尚未最终冻结。
+已冻结：
 
-Agent 禁止自行决定：
+> 一个 SaaS Tenant 对应一个 Frappe / ERPNext Site。
 
-- 每 Tenant 独立 ERPNext
-- 多 Tenant 共享 ERPNext
+未来 `Tenant` 与 `ErpConnection` / `ErpSiteConnection` 是 1:1。
 
-如果实现涉及该决策：
+禁止：
 
-停止并指出需要架构决策。
+- 多 Tenant 共享同一个 Site
+- 建设复杂 `ErpInstance` 领域模型来表达「一台 ERPNext 跑多个 Tenant」
+
+当前开发只使用一个 Site。连接仍通过 `ErpConnectionProvider` 按租户解析，不要把 Site URL 写死在业务代码里。
 
 ------
 

@@ -43,8 +43,8 @@ app:
 
 `selling-price-list` 未配置时不查询商品价格，`referencePrice` 为空 —— 系统不会去猜某个价目表。
 
-ERPNext 多租户部署方式尚未冻结（`AGENTS.md` #20）。不同租户配置不同 `base-url` 就是每租户独立部署，
-配置相同 `base-url` 就是共享部署，代码两种都支持，不做架构决策。
+一个 SaaS Tenant 对应一个 Frappe / ERPNext Site（`AGENTS.md` #20，已冻结）。
+每个租户配置自己的 `erp.base-url`。不要建设 `ErpInstance` 领域模型，也不要让多个 Tenant 共享同一个 Site。
 
 ## 认证（临时实现）
 
@@ -86,7 +86,7 @@ ERPNext 中 `Item.name == Item.item_code`，不存在独立的 Variant 主键，
 
 | App 字段            | ERPNext 来源                                                     |
 | ------------------- | ---------------------------------------------------------------- |
-| `customerId`        | `Customer.name`                                                  |
+| `customerId`        | `Customer.name`（默认 naming 就是客户名本身，例如「韩兆亮」，不是 CUST-001） |
 | `customerName`      | `Customer.customer_name`                                         |
 | `phone`             | `Customer.mobile_no`                                             |
 | `address`           | `Customer.primary_address`                                       |
@@ -142,6 +142,29 @@ ERPNext REST 无法把 `Bin` 与 `Item Reorder` 做联表分页过滤。当前�
 - `aliases` —— 需要 SaaS Identity 模块
 - `lowStock` / `alertQty` —— ERPNext 未配置预警线时为空，表示「无法判断」，不返回任何库存百分比
 
+## Phase 1B 真实 ERPNext 验收
+
+对照官方 `frappe_docker` 标准 ERPNext **v16.32.3** / Frappe **16.31.0** 验证 Adapter。
+未改 ERPNext、未建 Custom App。凭据与本地 `application-local.yml` 不进仓库。
+
+已确认：
+
+- `Item.name == Item.item_code`；`has_variants=1` 的模板不会进入选择器
+- 变体 `productId = variant_of`（APPLE-80 → APPLE），非变体 `productId = itemCode`（BANANA-FEN）
+- `spec` 取 `Item Variant Attribute.attribute_value` 原文（实测为「80果」，不是另外编一个「80mm」）
+- 子表批量查询必须带 `parent=Item`；DocType 名带空格时路径必须编码为 `%20`，不能是 `+`
+- Item Price 按 UOM 分开；没有价格行就不返回 `referencePrice`，不伪造
+- `Bin.actual_qty` 与 Reorder / `safety_stock` 预警可用；未配置时 `safety_stock` 会返回 `0.0`，不把它当预警线
+- `Customer.primary_address` 只有设置了 `customer_primary_address` 才会填充，值是 HTML，Mapper 压成单行纯文本；未设置则字段缺失，不伪造地址
+- 中文 LIKE、手机号搜索、`limit_start` 分页可用；`filters` 与 `or_filters` 是 AND
+
+标准 REST 本阶段够用，不便之处记为限制，不为此建 Custom App：
+
+- 无法把 Bin 与 Item Reorder 做联表分页（低库存仍用候选集过滤，见上一节）
+- 列表接口不提供可靠 `totalCount`
+- Product Selector 没有独立 ERP API，当前最多返回 30 条
+- 搜索是字段 LIKE，不是全文检索
+
 ## 技术决策记录（Phase 1，已追认）
 
 | 决策                                          | 状态                                    |
@@ -150,8 +173,8 @@ ERPNext REST 无法把 `Bin` 与 `Item Reorder` 做联表分页过滤。当前�
 | Phase 1 不引入 Spring Security                | 通过，仅限当前只读阶段                  |
 | Token → Tenant Filter                         | 临时实现，Phase 2 必须替换              |
 | 正式 Authentication / Membership              | Phase 2 必须完成                        |
-| ERPNext per-tenant / shared 部署模式          | 继续保持未决                            |
-| `ErpConnectionProvider` 抽象                  | 保留，不得锁死部署方式                  |
+| 一个 SaaS Tenant 对应一个 Frappe/ERPNext Site | 已冻结；禁止多 Tenant 共享 Site         |
+| `ErpConnectionProvider` 抽象                  | 保留，按租户解析 Site 连接              |
 
 补充说明：
 
@@ -161,5 +184,5 @@ ERPNext REST 无法把 `Bin` 与 `Item Reorder` 做联表分页过滤。当前�
 - **不引入 Spring Security**：只读阶段用一个 Servlet Filter 完成 Token → Tenant 解析已经足够。
   这是临时实现，**Phase 2 必须替换成正式 Authentication / Authorization / Membership**，
   在此之前不要在其上叠加权限逻辑。
-- **部署模式未决**：`ErpConnectionProvider` 按租户返回连接，代码不假设 ERPNext 是每租户一套
-  还是共享一套。该决策留待架构冻结，不得在实现中提前锁死。
+- **部署模型已冻结**：一个 SaaS Tenant 对应一个 Frappe/ERPNext Site。`ErpConnectionProvider`
+  按租户返回该 Site 的连接。不要建设 `ErpInstance`，也不要把 Site URL 写进业务 Service。
