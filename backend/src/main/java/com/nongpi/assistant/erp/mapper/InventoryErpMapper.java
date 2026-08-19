@@ -41,8 +41,8 @@ public class InventoryErpMapper {
         BigDecimal alertQty = resolveAlertQty(warehouse, item, reorderLevels);
 
         return new InventoryItem(
+                // productId 只是商品族分组：变体取模板，非变体取自身编码
                 variantOf != null ? variantOf : itemCode,
-                itemCode,
                 itemCode,
                 itemName != null ? itemName : itemCode,
                 ErpSpec.fromAttributes(attributes),

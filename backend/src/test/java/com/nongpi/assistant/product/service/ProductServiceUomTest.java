@@ -34,12 +34,14 @@ class ProductServiceUomTest {
     @BeforeEach
     void setUp() {
         catalog = Map.of(
-                "APPLE-80", new ProductVariant("APPLE", "APPLE-80", "APPLE-80", "苹果80果", "80mm",
+                // 变体商品：productId 是模板 APPLE，itemCode 是可交易身份 APPLE-80
+                "APPLE-80", new ProductVariant("APPLE", "APPLE-80", "苹果80果", "80mm",
                         List.of(), "箱",
                         List.of(new AllowedUom("箱", BigDecimal.ONE, new BigDecimal("68"), "CNY"),
                                 new AllowedUom("斤", new BigDecimal("20"), new BigDecimal("3.8"), "CNY")),
                         new BigDecimal("68"), "箱", "CNY"),
-                "BANANA-FEN", new ProductVariant("BANANA-FEN", "BANANA-FEN", "BANANA-FEN", "香蕉粉蕉", null,
+                // 非变体商品：productId 回落为自身 itemCode
+                "BANANA-FEN", new ProductVariant("BANANA-FEN", "BANANA-FEN", "香蕉粉蕉", null,
                         List.of(), "件",
                         List.of(new AllowedUom("件", BigDecimal.ONE, new BigDecimal("32"), "CNY")),
                         new BigDecimal("32"), "件", "CNY"));

@@ -272,9 +272,11 @@ class MasterDataApiTest {
                 .andExpect(status().isOk())
                 // 常买商品需要订单历史，本轮为空数组
                 .andExpect(jsonPath("$.frequentItems").isEmpty())
+                // productId 只做商品族分组，itemCode 才是可交易 Item 的正式身份
                 .andExpect(jsonPath("$.results[0].productId").value("APPLE"))
-                .andExpect(jsonPath("$.results[0].variantId").value("APPLE-80"))
                 .andExpect(jsonPath("$.results[0].itemCode").value("APPLE-80"))
+                // 不再暴露 ERPNext 里不存在的 variantId
+                .andExpect(jsonPath("$.results[0].variantId").doesNotExist())
                 .andExpect(jsonPath("$.results[0].productName").value("苹果80果"))
                 .andExpect(jsonPath("$.results[0].spec").value("80mm"))
                 .andExpect(jsonPath("$.results[0].defaultUom").value("箱"))
@@ -307,6 +309,8 @@ class MasterDataApiTest {
         mockMvc.perform(get("/api/v1/inventory").header("Authorization", "Bearer " + TOKEN_A))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].itemCode").value("APPLE-80"))
+                .andExpect(jsonPath("$.content[0].productId").value("APPLE"))
+                .andExpect(jsonPath("$.content[0].variantId").doesNotExist())
                 .andExpect(jsonPath("$.content[0].productName").value("苹果80果"))
                 .andExpect(jsonPath("$.content[0].spec").value("80mm"))
                 .andExpect(jsonPath("$.content[0].quantity").value(450.0))

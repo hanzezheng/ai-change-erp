@@ -61,8 +61,8 @@ class FrappeItemErpAdapterTest {
 
         ProductVariant variant = adapter.search(erp.connection("T001"), null, 0, 30).get(0);
 
+        // itemCode 是可交易 Item 的唯一正式身份
         assertThat(variant.itemCode()).isEqualTo("GRAPE-01");
-        assertThat(variant.variantId()).isEqualTo("GRAPE-01");
         // ERPNext 中非变体商品没有模板，productId 只能回落为自身编码
         assertThat(variant.productId()).isEqualTo("GRAPE-01");
         assertThat(variant.productName()).isEqualTo("阳光玫瑰");
@@ -95,9 +95,8 @@ class FrappeItemErpAdapterTest {
 
         ProductVariant variant = adapter.search(erp.connection("T001"), null, 0, 30).get(0);
 
+        // 变体商品的 productId 是模板，itemCode 才是可交易身份
         assertThat(variant.productId()).isEqualTo("APPLE");
-        // ERPNext 中 Item.name == Item.item_code，不存在独立的变体主键
-        assertThat(variant.variantId()).isEqualTo("APPLE-80");
         assertThat(variant.itemCode()).isEqualTo("APPLE-80");
         assertThat(variant.spec()).isEqualTo("80mm");
     }

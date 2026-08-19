@@ -99,7 +99,6 @@ public class ProductService {
         for (ProductVariant variant : variants) {
             enriched.add(new ProductVariant(
                     variant.productId(),
-                    variant.variantId(),
                     variant.itemCode(),
                     variant.productName(),
                     variant.spec(),

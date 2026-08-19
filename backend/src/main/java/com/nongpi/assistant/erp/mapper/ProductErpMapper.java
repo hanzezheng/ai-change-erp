@@ -20,6 +20,9 @@ import java.util.Map;
  *
  * <p>本类是「商品身份、合法单位、参考价格」三件事的唯一映射点，
  * 不依赖 HTTP，可以直接用 ERP DTO 做单元测试。
+ *
+ * <p>这里产出的 referencePrice 只是展示与默认参考价，不是成交价，
+ * 边界见 {@link AllowedUom}。
  */
 @Component
 public class ProductErpMapper {
@@ -29,8 +32,8 @@ public class ProductErpMapper {
                                            List<ErpItemAttribute> attributes,
                                            List<ErpItemPrice> prices) {
         String itemCode = ErpValues.trimToNull(item.resolvedItemCode());
-        String variantId = ErpValues.trimToNull(item.name());
         String stockUom = ErpValues.trimToNull(item.stockUom());
+        String variantOf = ErpValues.trimToNull(item.variantOf());
 
         PriceIndex priceIndex = PriceIndex.of(prices);
         List<AllowedUom> allowedUoms = buildAllowedUoms(uomConversions, stockUom, priceIndex);
@@ -38,8 +41,8 @@ public class ProductErpMapper {
         AllowedUom defaultUomEntry = findUom(allowedUoms, defaultUom);
 
         return new ProductVariant(
-                ErpValues.trimToNull(item.variantOf()) != null ? item.variantOf().trim() : itemCode,
-                variantId != null ? variantId : itemCode,
+                // productId 只是商品族分组：变体取模板，非变体取自身编码
+                variantOf != null ? variantOf : itemCode,
                 itemCode,
                 ErpValues.trimToNull(item.itemName()) != null ? item.itemName().trim() :                 itemCode,
                 ErpSpec.fromAttributes(attributes),
