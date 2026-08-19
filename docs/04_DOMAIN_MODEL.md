@@ -1,6 +1,8 @@
-# AI农批经营助手领域映射设计
+# 04_DOMAIN_MODEL.md
 
-版本：2.1
+AI 农批经营助手领域模型与 ERPNext 映射设计。
+
+版本：2.2
 
 ## 1. 文档目的
 
@@ -156,6 +158,60 @@ Item
 - Item Code：APPLE-80
 - Item Name：苹果80果
 - UOM：箱
+
+### 商品身份语义（已冻结）
+
+ERPNext 中：
+
+```
+Item.name == Item.item_code
+```
+
+不存在需要我们自行制造的独立 Variant 主键。
+
+因此商品身份只有两个字段：
+
+`itemCode`
+
+= 可交易 ERPNext Item 的唯一正式身份
+
+= 订单行只认它
+
+`productId`
+
+= Variant 时取 `Item.variant_of`
+
+= 非 Variant 时取自身 `itemCode`
+
+= 只用于商品模板 / 商品族分组，不是可交易身份
+
+例如：
+
+```
+苹果模板：
+productId = APPLE
+
+苹果80果：
+productId = APPLE
+itemCode  = APPLE-80
+
+香蕉粉蕉（非变体）：
+productId = BANANA-FEN
+itemCode  = BANANA-FEN
+```
+
+禁止制造 `P001V80` 这种 ERPNext 不存在的合成主键。
+
+### 商品价格
+
+商品参考价格来自 ERPNext Item Price，按 UOM 绑定。
+
+参考价格只用于商品选择展示与订单行默认值。
+
+它不是最终成交价：ERPNext 实际定价还要结合 Selling Price List、Customer、
+UOM、Qty、Currency、Transaction Date、Pricing Rule 等正式业务上下文。
+
+订单模块必须通过 ERPNext 正式定价链路取得成交价。
 
 ### AI 增强：Product Identity
 
@@ -314,27 +370,53 @@ AI 创建订单与手动创建订单最终必须进入同一个 Sales Order 模�
 
 ------
 
-## 8. Order Draft 订单草稿
+## 8. Order Draft 订单草稿（V1 边界已冻结）
 
-需要区分两种情况。
+Draft 分两层，必须区分清楚。
 
-### 8.1 App 临时草稿
+### 8.1 客户端编辑状态
 
-用户还在输入过程中，可以存在 App 或短期 Context 中。
+新增 / 编辑订单过程中，只是 Flutter 本地编辑状态，可以存在 App 或短期 Context 中。
 
-这种草稿不是企业事实。
+这种草稿不是企业事实，**不创建 ERPNext Sales Order**。
 
-### 8.2 ERPNext Sales Order Draft
+AI 解析出的订单同样只是普通订单编辑页的 Draft State。
 
-当订单已经具备足够信息并需要保存时，可以创建 ERPNext Draft 状态的 Sales Order。
+AI 解析完成不自动创建 ERPNext Sales Order。
 
-正式提交后由 ERPNext 管理后续状态。
+这一层允许字段暂未完成。
+
+### 8.2 ERPNext Draft Sales Order
+
+用户点击「保存草稿」时：
+
+数据通过最低正式订单校验后，才创建 ERPNext `docstatus=0` Draft Sales Order。
+
+ERPNext Draft 创建之后：
+
+后续「保存修改」更新同一张 Sales Order，禁止创建新单。
+
+用户点击「提交订单」：
+
+Submit 同一张 ERPNext Sales Order，之后由 ERPNext 管理后续状态。
+
+### 8.3 V1 明确规则
+
+V1 不引入 PostgreSQL Order Working Draft 表。
+
+V1 不支持把存在无效商品行的订单持久化为正式 ERP Draft。
+
+例如商品已选但数量为空：保存草稿时提示填写，不静默删除该商品行，
+也不建立第二套订单草稿事实。
 
 原则：
 
 > 不建立独立的 AI Order 数据库。
 
-如果需要持久化业务草稿，优先使用 ERPNext Draft。
+需要持久化业务草稿时，只使用 ERPNext Draft。
+
+注意：早期「保存草稿允许任意不完整商品行」不再成立。
+「允许不完整」只适用于 8.1 的客户端编辑状态。
 
 ------
 

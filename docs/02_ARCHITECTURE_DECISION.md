@@ -1,4 +1,4 @@
-# 02_ARCHITECTURE.md
+# 02_ARCHITECTURE_DECISION.md
 
 版本：2.2（长期 SaaS 生产架构版）
 

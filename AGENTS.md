@@ -114,9 +114,9 @@ AI 的价值：
 
 1. `AGENTS.md`
 2. `docs/01_PRODUCT_VISION.md`
-3. `docs/02_ARCHITECTURE.md`
+3. `docs/02_ARCHITECTURE_DECISION.md`
 4. `docs/03_PRODUCT_FLOW.md`
-5. `docs/04_DOMAIN_MAPPING.md`
+5. `docs/04_DOMAIN_MODEL.md`
 6. `docs/05_UI_SPEC.md`
 7. `docs/06_API_DATA_DESIGN.md`
 8. `docs/07_TECH_STACK_DECISION.md`
@@ -141,8 +141,8 @@ docs/README.md
 
 1. 当前明确的产品决策
 2. `01_PRODUCT_VISION.md`
-3. `02_ARCHITECTURE.md`
-4. `04_DOMAIN_MAPPING.md`
+3. `02_ARCHITECTURE_DECISION.md`
+4. `04_DOMAIN_MODEL.md`
 5. `06_API_DATA_DESIGN.md`
 6. `03_PRODUCT_FLOW.md`
 7. `05_UI_SPEC.md`
@@ -611,12 +611,60 @@ Product
 
 ------
 
-# 26. Product / Variant ID
+# 26. Product / Item 身份语义（已冻结）
+
+ERPNext 中：
+
+```
+Item.name == Item.item_code
+```
+
+不存在需要我们自行制造的独立 Variant 主键。
+
+正式身份统一为两个字段：
+
+`itemCode`
+
+= 可交易 ERPNext Item 的唯一正式身份
+
+= 订单行只认它
+
+`productId`
+
+= Variant 时取 `Item.variant_of`
+
+= 非 Variant 时取自身 `itemCode`
+
+= 只用于商品模板 / 商品族分组，不是可交易身份
+
+例如：
+
+```
+苹果模板：
+productId = APPLE
+
+苹果80果：
+productId = APPLE
+itemCode  = APPLE-80
+
+香蕉粉蕉（非变体）：
+productId = BANANA-FEN
+itemCode  = BANANA-FEN
+```
+
+禁止制造：
+
+```
+P001V80
+```
+
+这种 ERPNext 不存在的合成主键。
 
 正式 OrderItem 至少必须拥有：
 
+- orderItemId
 - productId
-- variantId / itemCode
+- itemCode
 - productName
 - spec
 - qty
@@ -665,7 +713,7 @@ Resolver 综合：
 最终输出：
 
 ```
-itemCode / variantId
+itemCode
 ```
 
 不能只输出自然语言商品名。
@@ -753,6 +801,30 @@ Adapter 映射处理。
 禁止：
 
 从箱切到斤后仍然保留 ¥68。
+
+**referencePrice 用途边界**
+
+`referencePrice` 来自 ERPNext Item Price，只用于：
+
+- Product Selector 展示
+- 订单行的默认参考价
+
+它不是最终权威成交价格计算器。
+
+ERPNext 的实际定价还需要结合正式业务上下文：
+
+- Selling Price List
+- Customer
+- UOM
+- Qty
+- Currency
+- Transaction Date
+- Pricing Rule
+
+订单模块必须通过 ERPNext 正式定价链路取得成交价。
+
+禁止把 Product Selector 的 `referencePrice`
+直接当作 ERPNext 最终定价结果。
 
 ------
 
@@ -851,7 +923,7 @@ OrderItem 至少：
 
 - orderItemId
 - productId
-- variantId / itemCode
+- itemCode
 - productName
 - spec
 - qty
@@ -970,9 +1042,9 @@ Selector 支持：
 选择后必须获得：
 
 - productId
-- variantId
 - itemCode
 - allowedUoms
+- defaultUom
 
 ------
 
@@ -983,7 +1055,7 @@ Selector 支持：
 - Customer 存在
 - customerId 有效
 - 至少一个 Item
-- 每个 Item 有明确 Item Code / Variant ID
+- 每个 Item 有明确 itemCode
 - Qty > 0
 - UOM 合法
 - Rate >= 0
@@ -1018,17 +1090,57 @@ filter()
 
 ------
 
-# 46. Draft
+# 46. Draft 边界（V1 已冻结）
 
-保存草稿允许部分字段未完成。
+Draft 分两层，必须区分清楚：
 
-正式提交不允许。
+**编辑状态**
 
-如果需要持久化业务 Draft：
+新增 / 编辑订单过程中，只是 Flutter 本地编辑状态。
 
-优先使用 ERPNext Draft Sales Order。
+不立即创建 ERPNext Sales Order。
 
-不要创建第二套 AI Order 事实表。
+AI 解析出的订单同样只是普通订单编辑页的 Draft State。
+
+AI 解析完成不自动创建 ERPNext Sales Order。
+
+**ERPNext Draft**
+
+用户点击「保存草稿」时：
+
+数据通过最低正式订单校验后，
+才创建 ERPNext `docstatus=0` Draft Sales Order。
+
+ERPNext Draft 创建之后：
+
+后续「保存修改」更新同一张 Sales Order。
+
+禁止创建新单。
+
+用户点击「提交订单」：
+
+Submit 同一张 ERPNext Sales Order。
+
+**V1 明确规则**
+
+V1 不引入 PostgreSQL Order Working Draft 表。
+
+V1 不支持把存在无效商品行的订单持久化为正式 ERP Draft。
+
+例如商品已选但数量为空：
+
+保存草稿时提示填写。
+
+不静默删除该商品行。
+
+也不建立第二套订单草稿事实。
+
+注意：
+
+早期「保存草稿允许任意不完整商品行」的说法已废弃。
+
+「允许不完整」只适用于尚未落 ERP 的本地编辑状态，
+不适用于创建 ERPNext Draft Sales Order。
 
 ------
 
@@ -2082,8 +2194,10 @@ AI 路径。
 - 修改 Rate
 - 删除 Item
 - 添加 Item
-- 保存 Draft
+- 保存草稿创建 ERPNext Draft
+- 再次保存修改同一张 Sales Order（不新建单）
 - Submit
+- 不完整 Item 保存草稿失败
 - 不完整 Item 提交失败
 
 ------
@@ -2288,10 +2402,13 @@ Order Status 不自动变化。
 领域：
 
 - ERPNext 是否仍是事实源？
-- Customer 是否有 ID？
-- Item 是否有 Item Code / Variant ID？
+- Customer 是否有 customerId？
+- Item 是否有 itemCode？
+- 是否没有制造 ERPNext 不存在的合成主键？
 - UOM 是否合法？
 - Order 是否支持 items[]？
+- 是否把 referencePrice 当成了成交价？
+- 未落 ERP 的编辑状态是否没有产生 ERPNext Draft？
 
 AI：
 
