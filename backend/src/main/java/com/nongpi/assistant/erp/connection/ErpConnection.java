@@ -41,4 +41,9 @@ public record ErpConnection(
     public String clientCacheKey() {
         return tenantId + "|" + baseUrl + "|" + connectTimeout.toMillis() + "|" + readTimeout.toMillis();
     }
+
+    @Override
+    public String toString() {
+        return "ErpConnection[tenantId=" + tenantId + ", baseUrl=" + baseUrl + "]";
+    }
 }
