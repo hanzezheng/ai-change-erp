@@ -17,4 +17,12 @@ public interface ItemErpAdapter {
     List<ProductVariant> search(ErpConnection connection, String keyword, int offset, int limit);
 
     Optional<ProductVariant> findByItemCode(ErpConnection connection, String itemCode);
+
+    /**
+     * 可进入订单的商品：存在、未停用、可销售、且不是变体模板。
+     * 默认实现与 {@link #findByItemCode} 相同，正式 Adapter 会收紧条件。
+     */
+    default Optional<ProductVariant> findOrderableByItemCode(ErpConnection connection, String itemCode) {
+        return findByItemCode(connection, itemCode);
+    }
 }

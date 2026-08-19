@@ -2,7 +2,7 @@
 
 AI 农批经营助手领域模型与 ERPNext 映射设计。
 
-版本：2.2
+版本：2.3
 
 ## 1. 文档目的
 
@@ -289,6 +289,24 @@ Customer
 
 这些商品属于同一张 Sales Order。
 
+### 5.1 公开 ID 与 ERPNext 主键（Phase 3 已冻结）
+
+公开 API 直接使用 ERPNext 主键，不另造一层业务 ID：
+
+- `orderId` = `Sales Order.name`
+- `orderItemId` = `Sales Order Item.name`（创建时客户端不传）
+- `paymentId` = `Payment Entry.name`
+
+禁止在公开 DTO 中再返回 `erpSalesOrderId` / `erpPaymentEntryId`。
+
+`POST /api/v1/orders` 永远只创建 Draft（`docstatus=0`）。Submit 只走 `POST /api/v1/orders/{orderId}/submit`。普通 `PUT` 仅允许 Draft；已提交订单只读。
+
+`confirmedPaid` 优先取 `Sales Order.advance_paid`。经营待收金额字段名为 `remainingToCollect`，不是会计科目上的 `outstanding`。Draft Payment Entry 不计。付清只改 `paymentStatus=PAID`，不把 `orderStatus` 改为 COMPLETED。
+
+付款方式来自 ERPNext Mode of Payment。当前 Company 未配置默认账户时返回 `PAYMENT_METHOD_NOT_CONFIGURED`，不猜测会计科目。
+
+Phase 3 真实 ERPNext v16 Probe：标准字段 `remarks` 创建后不会落库，因此本阶段不持久化订单 `note`。`delivery_date` 若必填，默认等于 `transaction_date`，不表示配送流程。
+
 ------
 
 ## 6. Sales Order Item 订单商品明细
@@ -431,11 +449,11 @@ V1 不支持把存在无效商品行的订单持久化为正式 ERP Draft。
 例如：
 
 - Draft：草稿
-- To Deliver and Bill / Submitted：已提交，具体展示名称根据实际 ERPNext 流程映射
+- To Deliver and Bill / Submitted：已提交
 - Completed：已完成
 - Cancelled：已取消
 
-App 可以对 ERPNext 状态做更适合老板理解的展示映射，但不能创造冲突的业务状态。
+不要伪造订单「待确认」。App 可以对 ERPNext 状态做更适合老板理解的展示映射，但不能创造冲突的业务状态。
 
 ### 付款状态
 

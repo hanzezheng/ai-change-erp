@@ -37,8 +37,12 @@ public final class ErpErrorTranslator {
 
     private static BusinessException translateStatus(String doctype, HttpStatusCodeException cause) {
         int status = cause.getStatusCode().value();
-        log.error("ERPNext 返回错误状态, doctype={}, status={}, body={}", doctype, status,
-                cause.getResponseBodyAsString(), cause);
+        String responseBody = cause.getResponseBodyAsString();
+        log.error("ERPNext 返回错误状态, doctype={}, status={}, body={}", doctype, status, responseBody, cause);
+        if (isTimestampMismatch(responseBody)) {
+            return new BusinessException(BusinessErrorCode.ORDER_CONFLICT,
+                    BusinessErrorCode.ORDER_CONFLICT.defaultMessage(), java.util.Map.of(), cause);
+        }
         // ERPNext 401 表示服务端配置的 API Key/Secret 无效，属于我们自己的配置问题，
         // 不是调用方没有权限，因此不映射为 PERMISSION_DENIED。
         if (status == 403) {
@@ -46,6 +50,10 @@ public final class ErpErrorTranslator {
                     "ERP 拒绝了该操作", java.util.Map.of(), cause);
         }
         return erpUnavailable(cause);
+    }
+
+    private static boolean isTimestampMismatch(String body) {
+        return body != null && body.contains("TimestampMismatchError");
     }
 
     private static BusinessException erpUnavailable(Throwable cause) {

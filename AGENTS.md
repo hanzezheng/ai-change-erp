@@ -904,22 +904,30 @@ price
 
 # 36. Order 正式身份
 
+`orderId` 等于 ERPNext `Sales Order.name`。公开 API 不再返回 `erpSalesOrderId`。
+
 订单至少包含：
 
 - orderId
-- ERP Sales Order ID
 - customerId
 - customerName
 - items[]
 - orderStatus
 - paymentStatus
 - totalAmount
-- note
+- confirmedPaid
+- remainingToCollect
 - timestamps
+
+`updatedAt` 等于 ERPNext `modified`，用于乐观锁。
+
+Phase 3 实测标准 `remarks` 创建后不会落库，因此本阶段不持久化 `note`。
 
 ------
 
 # 37. OrderItem 正式身份
+
+`orderItemId` 等于 ERPNext `Sales Order Item.name`（创建时客户端不传，由 ERPNext 生成）。
 
 OrderItem 至少：
 
@@ -1152,11 +1160,12 @@ V1 不支持把存在无效商品行的订单持久化为正式 ERP Draft。
 
 Order Status：
 
-- 草稿
-- 待确认
-- 已提交
-- 已完成
-- 已取消
+- 草稿（`docstatus=0`）
+- 已提交（`docstatus=1` 且 ERP `status` 不是 Completed）
+- 已完成（`docstatus=1` 且 ERP `status=Completed`）
+- 已取消（`docstatus=2`）
+
+不要伪造订单「待确认」。ERPNext 没有对应的订单状态。
 
 Payment Status：
 
@@ -1191,6 +1200,8 @@ Order Status → 已完成
 
 # 49. Payment 正式身份
 
+`paymentId` 等于 ERPNext `Payment Entry.name`。公开 API 不再返回 `erpPaymentEntryId`。
+
 Payment 必须至少保存：
 
 - paymentId
@@ -1200,8 +1211,9 @@ Payment 必须至少保存：
 - paymentMethod
 - paymentStatus
 - relatedOrderId
-- ERP Payment Entry ID
 - transactionTime
+
+付款方式来自 ERPNext Mode of Payment，不写死微信/现金。该方式在当前 Company 没有默认账户时返回 `PAYMENT_METHOD_NOT_CONFIGURED`，不猜科目。
 
 禁止只保存 Customer Name。
 
@@ -1228,10 +1240,12 @@ customerId。
 必须：
 
 confirmedPaid =
-所有该订单 `已到账` Payment 总额
+所有该订单已提交（已到账）Payment 总额，优先使用 `Sales Order.advance_paid`
 
-outstanding =
+remainingToCollect =
 max(orderTotal - confirmedPaid, 0)
+
+`remainingToCollect` 是经营收款进度，不是会计应收。Draft Payment Entry 不计。
 
 规则：
 
@@ -1273,7 +1287,7 @@ Confirmed Paid：
 
 系统必须知道：
 
-Outstanding：
+remainingToCollect：
 
 1320
 
@@ -1956,10 +1970,18 @@ Order 使用 Order ID。
 - INVALID_UOM
 - INVALID_QUANTITY
 - INVALID_RATE
+- ORDER_NOT_FOUND
 - ORDER_INVALID
 - ORDER_STATUS_INVALID
 - ORDER_CONFLICT
+- PAYMENT_NOT_FOUND
 - PAYMENT_INVALID
+- PAYMENT_STATUS_INVALID
+- PAYMENT_METHOD_NOT_CONFIGURED
+- ERP_WRITE_CONFIGURATION_INCOMPLETE
+- IDEMPOTENCY_CONFLICT
+- IDEMPOTENCY_IN_PROGRESS
+- IDEMPOTENCY_OUTCOME_UNKNOWN
 - PERMISSION_DENIED
 - ERP_UNAVAILABLE
 - AI_UNAVAILABLE

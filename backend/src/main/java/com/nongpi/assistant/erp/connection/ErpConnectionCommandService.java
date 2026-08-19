@@ -64,6 +64,7 @@ public class ErpConnectionCommandService {
         }
         entity.setSellingPriceList(blankToNull(command.sellingPriceList()));
         entity.setDefaultWarehouse(blankToNull(command.defaultWarehouse()));
+        entity.setDefaultCompany(blankToNull(command.defaultCompany()));
         entity.setStatus(command.status() == null ? ErpConnectionStatus.ACTIVE : command.status());
         entity.setConnectTimeoutMs(command.connectTimeoutMs() == null ? 3000 : command.connectTimeoutMs());
         entity.setReadTimeoutMs(command.readTimeoutMs() == null ? 10000 : command.readTimeoutMs());
@@ -93,6 +94,7 @@ public class ErpConnectionCommandService {
             String apiSecret,
             String sellingPriceList,
             String defaultWarehouse,
+            String defaultCompany,
             ErpConnectionStatus status,
             Integer connectTimeoutMs,
             Integer readTimeoutMs
@@ -106,6 +108,7 @@ public class ErpConnectionCommandService {
             String siteName,
             String sellingPriceList,
             String defaultWarehouse,
+            String defaultCompany,
             ErpConnectionStatus status,
             int connectTimeoutMs,
             int readTimeoutMs,
@@ -120,6 +123,7 @@ public class ErpConnectionCommandService {
                     entity.getSiteName(),
                     entity.getSellingPriceList(),
                     entity.getDefaultWarehouse(),
+                    entity.getDefaultCompany(),
                     entity.getStatus(),
                     entity.getConnectTimeoutMs(),
                     entity.getReadTimeoutMs(),

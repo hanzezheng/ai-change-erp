@@ -2,8 +2,8 @@
 
 AI 农批经营助手业务后端（Java 21 + Spring Boot 3）。
 
-当前阶段包含 **SaaS 基础设施** 与 **ERPNext 主数据只读链路**。
-订单、收款、AI、ASR、Identity 均未开发。
+当前阶段包含 **SaaS 基础设施**、**ERPNext 主数据只读链路** 与 **订单/收款写链路**。
+AI、ASR、Identity、Flutter 均未开发。
 
 架构约束见仓库根目录 `AGENTS.md` 与 `docs/`。
 
@@ -13,6 +13,14 @@ AI 农批经营助手业务后端（Java 21 + Spring Boot 3）。
 
 ```bash
 ./mvnw test
+```
+
+真实 ERPNext Write Probe 默认不跑（`@Tag("erp-smoke")`）。本地有 Site 凭据时：
+
+```bash
+export ERP_RUN_WRITE_PROBE=true
+source /tmp/erp_env.sh
+./mvnw test -Dsurefire.excludedGroups= -Dtest=com.nongpi.assistant.erp.client.ErpWriteProbeSmokeTest
 ```
 
 ```bash
@@ -34,6 +42,7 @@ export ERP_BASE_URL=http://localhost:8080
 export ERP_SITE_NAME=frontend
 export ERP_API_KEY=...
 export ERP_API_SECRET=...
+export ERP_DEFAULT_COMPANY=农批测试档口
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
@@ -59,7 +68,7 @@ Master Key 来自 `APP_CREDENTIAL_ENCRYPTION_KEY`，不入库、不进 Git、不
 - `TenantContextHolder` 仍由现有 Adapter 使用，来源改为已验证的 JWT Membership
 
 公开接口：`POST /api/v1/auth/login`、`POST /api/v1/auth/refresh`、`GET /actuator/health`。
-其余 `/api/v1/**` 需要认证。OWNER / ADMIN 可改 ERP 连接与 Membership；STAFF 及以上可访问只读经营 API。
+其余 `/api/v1/**` 需要认证。OWNER / ADMIN 可改 ERP 连接与 Membership；登录 Tenant 成员即可访问客户/商品/库存/订单/收款 API，不另开 ADMIN 门槛。
 
 ## 接口
 
@@ -77,9 +86,21 @@ Master Key 来自 `APP_CREDENTIAL_ENCRYPTION_KEY`，不入库、不进 Git、不
 | `PUT`  | `/api/v1/erp-connection`         | 创建/更新 ERP 连接（ADMIN+）             |
 | `GET`  | `/api/v1/customers`              | 客户列表 / 搜索，分页                    |
 | `GET`  | `/api/v1/customers/{customerId}` | 客户详情                                 |
-| `GET`  | `/api/v1/customers/selector`     | 客户选择器                               |
-| `GET`  | `/api/v1/products/selector`      | 商品选择器，含 allowedUoms 与参考价格    |
+| `GET`  | `/api/v1/customers/selector`     | 客户选择器；`recent` 来自已提交订单      |
+| `GET`  | `/api/v1/products/selector`      | 商品选择器；可带 customerId 返回常买商品 |
 | `GET`  | `/api/v1/inventory`              | 库存查询，支持关键字 / 低库存 / 仓库筛选 |
+| `GET`  | `/api/v1/orders`                 | 订单列表，ERP 侧过滤                     |
+| `GET`  | `/api/v1/orders/{orderId}`       | 订单详情                                 |
+| `POST` | `/api/v1/orders`                 | 创建 Draft Sales Order（需 Idempotency-Key） |
+| `PUT`  | `/api/v1/orders/{orderId}`       | 更新同一张 Draft；已提交只读             |
+| `POST` | `/api/v1/orders/{orderId}/submit` | 提交同一张订单                         |
+| `GET`  | `/api/v1/orders/{orderId}/payment-summary` | 收款进度：confirmedPaid / remainingToCollect |
+| `GET`  | `/api/v1/payment-methods`        | ERPNext Mode of Payment                  |
+| `GET`  | `/api/v1/payments`               | 按 relatedOrderId 列出收款               |
+| `GET`  | `/api/v1/payments/{paymentId}`   | 收款详情                                 |
+| `POST` | `/api/v1/payments`               | 创建 Draft Payment Entry（需 Idempotency-Key） |
+| `POST` | `/api/v1/payments/{id}/confirm`  | 确认同一张收款                           |
+| `GET`  | `/api/v1/pricing/last-deal`      | 历史成交价，无则空对象                   |
 
 ## 商品身份模型（已冻结）
 
@@ -119,6 +140,15 @@ ERPNext 中 `Item.name == Item.item_code`，不存在独立的 Variant 主键，
 | `warehouse`         | `Bin.warehouse`                                                  |
 | `alertQty`          | `Item Reorder.warehouse_reorder_level`，退到 `Item.safety_stock`  |
 | `aliases`           | SaaS Customer / Product Identity（未开发，返回 `[]`）             |
+| `orderId`           | `Sales Order.name`                                               |
+| `orderItemId`       | `Sales Order Item.name`                                          |
+| `orderStatus`       | `docstatus` + ERP `status`：0→DRAFT，2→CANCELLED，1+Completed→COMPLETED，其余已提交 |
+| `confirmedPaid`     | `Sales Order.advance_paid`                                       |
+| `remainingToCollect`| `max(grand_total - advance_paid, 0)`                             |
+| `updatedAt`         | `Sales Order.modified`                                           |
+| `paymentId`         | `Payment Entry.name`                                             |
+| `paymentMethodId`   | `Mode of Payment.name`                                           |
+| `paymentStatus`（收款单） | Payment Entry `docstatus`：0 待确认 / 1 已到账 / 2 已取消   |
 
 ## referencePrice 用途边界
 
@@ -152,11 +182,12 @@ ERPNext REST 无法把 `Bin` 与 `Item Reorder` 做联表分页过滤。当前�
 
 以下字段刻意不返回，而不是先填一个假值：
 
-- `CustomerSummary.receivableAmount` / `recentOrderTime` —— 需要 ERPNext 财务事实与销售订单历史
-- `CustomerSelectorResult.recent` —— 需要最近成交客户，来自 Sales Order 历史
-- `ProductSelectorResult.frequentItems` / `lastDealPrice` —— 需要按客户查询成交历史
+- `CustomerSummary.receivableAmount` / `recentOrderTime` —— 需要完整财务往来，不在本阶段展开
 - `aliases` —— 需要 SaaS Identity 模块
 - `lowStock` / `alertQty` —— ERPNext 未配置预警线时为空，表示「无法判断」，不返回任何库存百分比
+- 订单 `note` —— Phase 3 实测标准 `remarks` 不落库，因此本阶段不持久化
+
+`CustomerSelectorResult.recent`、`ProductSelectorResult.frequentItems` 与 `GET /pricing/last-deal` 已从已提交 Sales Order 历史读取；没有成交时为空，不用 `referencePrice` 伪造。
 
 ## Phase 1B 真实 ERPNext 验收
 
@@ -181,6 +212,24 @@ ERPNext REST 无法把 `Bin` 与 `Item Reorder` 做联表分页过滤。当前�
 - Product Selector 没有独立 ERP API，当前最多返回 30 条
 - 搜索是字段 LIKE，不是全文检索
 
+## Phase 3 真实 ERPNext 写链路验收
+
+对照同一套标准 ERPNext v16，未改 Frappe 核心、未建 Custom App。凭据不进 Git。
+
+已确认：
+
+- 两行 Draft Sales Order 创建后 `name` 稳定；同单改 qty/rate、删行、加行不换单号
+- 用户传入的 `rate` 会被保留，未设置 `ignore_pricing_rule`
+- child row `name` 可作为 `orderItemId`
+- `frappe.client.submit` 可用；已提交文档拒绝普通 PUT
+- 过期 `modified` 返回 `TimestampMismatchError`，映射为 `ORDER_CONFLICT`
+- `get_payment_entry(Sales Order, …)` 能生成带 accounts/party/reference 的 Draft Payment Entry
+- Draft 收款不计 `advance_paid`；Submit 后累计；付清后订单 `status` 仍为 `To Deliver and Bill`，不是 Completed
+- `APPLE-80` 箱与斤价格分离，`conversion_factor` 由 ERPNext 回填
+- `delivery_date` 设为 `transaction_date` 可创建成功
+- 标准 `remarks` 创建后返回空，本阶段不持久化 note
+- Mode of Payment 必须在当前 Company 有默认账户，否则后续 API 返回 `PAYMENT_METHOD_NOT_CONFIGURED`
+
 ## 技术决策记录
 
 | 决策                                          | 状态                                    |
@@ -191,6 +240,8 @@ ERPNext REST 无法把 `Bin` 与 `Item Reorder` 做联表分页过滤。当前�
 | 数据库 `ErpConnectionProvider`                | Phase 2 已落地，Adapter 接口不变        |
 | ERP 凭据 AES-GCM 加密                         | Phase 2 已落地，Master Key 来自环境变量 |
 | 一个 SaaS Tenant 对应一个 Frappe/ERPNext Site | 已冻结；禁止多 Tenant 共享 Site         |
+| Sales Order / Payment Entry 写链路            | Phase 3 已落地；事实仍只在 ERPNext      |
+| PostgreSQL `idempotency_record`               | 仅防重，不保存订单/收款事实             |
 
 补充说明：
 

@@ -22,6 +22,7 @@
         <mockwebserver.version>4.12.0</mockwebserver.version>
         <jjwt.version>0.12.6</jjwt.version>
         <testcontainers.version>1.21.3</testcontainers.version>
+        <surefire.excludedGroups>erp-smoke</surefire.excludedGroups>
     </properties>
 
     <dependencies>
@@ -132,6 +133,7 @@
                     <systemPropertyVariables>
                         <api.version>1.44</api.version>
                     </systemPropertyVariables>
+                    <excludedGroups>${surefire.excludedGroups}</excludedGroups>
                 </configuration>
             </plugin>
         </plugins>

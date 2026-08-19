@@ -11,6 +11,11 @@ public final class AuditActions {
     public static final String MEMBERSHIP_UPDATE = "MEMBERSHIP_UPDATE";
     public static final String ERP_CONNECTION_CREATE = "ERP_CONNECTION_CREATE";
     public static final String ERP_CONNECTION_UPDATE = "ERP_CONNECTION_UPDATE";
+    public static final String ORDER_DRAFT_CREATE = "ORDER_DRAFT_CREATE";
+    public static final String ORDER_DRAFT_UPDATE = "ORDER_DRAFT_UPDATE";
+    public static final String ORDER_SUBMIT = "ORDER_SUBMIT";
+    public static final String PAYMENT_DRAFT_CREATE = "PAYMENT_DRAFT_CREATE";
+    public static final String PAYMENT_CONFIRM = "PAYMENT_CONFIRM";
 
     private AuditActions() {
     }

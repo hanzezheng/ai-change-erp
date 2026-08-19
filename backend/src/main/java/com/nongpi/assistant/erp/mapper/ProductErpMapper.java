@@ -51,7 +51,8 @@ public class ProductErpMapper {
                 allowedUoms,
                 defaultUomEntry == null ? null : defaultUomEntry.referencePrice(),
                 defaultUomEntry == null || defaultUomEntry.referencePrice() == null ? null : defaultUom,
-                defaultUomEntry == null ? null : defaultUomEntry.currency()
+                defaultUomEntry == null ? null : defaultUomEntry.currency(),
+                null
         );
     }
 

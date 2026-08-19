@@ -1,6 +1,6 @@
 # 09_DEVELOPMENT_PLAN.md
 
-版本：3.0
+版本：3.1
 
 # 开发计划
 
@@ -45,8 +45,21 @@ Phase 1A 的临时 Token → Tenant Filter 已在本阶段替换为正式认证�
 - Update
 - Payment Entry
 - Payment accumulation
+- lastDealPrice / CustomerSelector.recent / ProductSelector.frequentItems
 
 Draft 边界见 `docs/04_DOMAIN_MODEL.md` 第 8 节与 `docs/06_API_DATA_DESIGN.md` 第 24 节。
+
+状态：已完成（见分支 `cursor/erpnext-order-payment-write-b267`）。未改 ERPNext、未建 Custom App。CI 只用 Fake + Testcontainers，真实 Write Probe 标记 `erp-smoke`，默认不跑。
+
+Phase 3 冻结：
+
+- `orderId` = `Sales Order.name`，删除公开 `erpSalesOrderId`
+- `paymentId` = `Payment Entry.name`
+- `POST /orders` 永远创建 Draft；Submit 只走独立接口
+- `remainingToCollect` 替代 `outstandingAmount`
+- 不伪造订单「待确认」
+- 付款方式来自 Mode of Payment
+- `note` 本阶段不持久化（标准 `remarks` 实测不落库）
 
 ### Phase 4：Flutter 无 AI 业务闭环
 

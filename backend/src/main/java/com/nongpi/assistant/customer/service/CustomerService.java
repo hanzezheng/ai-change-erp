@@ -7,6 +7,7 @@ import com.nongpi.assistant.common.error.BusinessException;
 import com.nongpi.assistant.customer.domain.CustomerSelectorResult;
 import com.nongpi.assistant.customer.domain.CustomerSummary;
 import com.nongpi.assistant.erp.adapter.CustomerErpAdapter;
+import com.nongpi.assistant.erp.adapter.SalesOrderErpAdapter;
 import com.nongpi.assistant.erp.connection.ErpConnection;
 import com.nongpi.assistant.erp.connection.ErpConnectionProvider;
 import com.nongpi.assistant.identity.CustomerAliasProvider;
@@ -26,13 +27,16 @@ public class CustomerService {
     private static final int SELECTOR_RESULT_LIMIT = 20;
 
     private final CustomerErpAdapter customerErpAdapter;
+    private final SalesOrderErpAdapter salesOrderErpAdapter;
     private final ErpConnectionProvider erpConnectionProvider;
     private final CustomerAliasProvider customerAliasProvider;
 
     public CustomerService(CustomerErpAdapter customerErpAdapter,
+                           SalesOrderErpAdapter salesOrderErpAdapter,
                            ErpConnectionProvider erpConnectionProvider,
                            CustomerAliasProvider customerAliasProvider) {
         this.customerErpAdapter = customerErpAdapter;
+        this.salesOrderErpAdapter = salesOrderErpAdapter;
         this.erpConnectionProvider = erpConnectionProvider;
         this.customerAliasProvider = customerAliasProvider;
     }
@@ -61,15 +65,23 @@ public class CustomerService {
     }
 
     /**
-     * 客户选择器。{@code recent}（最近成交客户）需要 Sales Order 历史，属于订单阶段，
-     * 本轮返回空数组而不是拿任意客户充数。
+     * 客户选择器。{@code recent} 来自当前租户已提交 Sales Order 的最近客户。
      */
     public CustomerSelectorResult selector(String keyword) {
         TenantContext tenant = TenantContextHolder.require();
         ErpConnection connection = erpConnectionProvider.resolve(tenant);
-        List<CustomerSummary> results =
-                customerErpAdapter.search(connection, keyword, 0, SELECTOR_RESULT_LIMIT);
-        return new CustomerSelectorResult(List.of(), withAliases(tenant, results));
+        List<String> recentIds = salesOrderErpAdapter.recentCustomerIds(connection, 8);
+        List<CustomerSummary> recent = new ArrayList<>();
+        for (String customerId : recentIds) {
+            customerErpAdapter.findById(connection, customerId).ifPresent(recent::add);
+        }
+        Set<String> recentSet = new LinkedHashSet<>();
+        recent.forEach(customer -> recentSet.add(customer.customerId()));
+        List<CustomerSummary> results = customerErpAdapter.search(connection, keyword, 0, SELECTOR_RESULT_LIMIT)
+                .stream()
+                .filter(customer -> !recentSet.contains(customer.customerId()))
+                .toList();
+        return new CustomerSelectorResult(withAliases(tenant, recent), withAliases(tenant, results));
     }
 
     private List<CustomerSummary> withAliases(TenantContext tenant, List<CustomerSummary> customers) {

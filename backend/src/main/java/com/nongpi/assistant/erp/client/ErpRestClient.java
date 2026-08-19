@@ -54,8 +54,14 @@ public class ErpRestClient {
      * 由调用方 Adapter 决定翻译成 CUSTOMER_NOT_FOUND 还是 ITEM_NOT_FOUND。
      */
     public <T> Optional<T> getDoc(ErpConnection connection, String doctype, String name, Class<T> type) {
-        URI uri = URI.create(connection.baseUrl() + RESOURCE_PATH
-                + encodePathSegment(doctype) + "/" + encodePathSegment(name));
+        return getDocNode(connection, doctype, name).map(node -> convert(doctype, node, type));
+    }
+
+    /**
+     * 读取文档原始 JSON。写链路需要保留 ERPNext 子表与 modified 等未建模字段。
+     */
+    public Optional<JsonNode> getDocNode(ErpConnection connection, String doctype, String name) {
+        URI uri = documentUri(connection, doctype, name);
         String body;
         try {
             body = clientFor(connection)
@@ -70,7 +76,74 @@ public class ErpRestClient {
         } catch (RuntimeException ex) {
             throw ErpErrorTranslator.translate(doctype, ex);
         }
-        return parseDataObject(doctype, body, type);
+        return parseDataNode(doctype, body);
+    }
+
+    /**
+     * 创建文档。对应 {@code POST /api/resource/{Doctype}}。
+     * 业务差异（Sales Order vs Payment Entry）必须留在 Adapter，不在本方法里分支。
+     */
+    public JsonNode createDoc(ErpConnection connection, String doctype, Object document) {
+        URI uri = URI.create(connection.baseUrl() + RESOURCE_PATH + encodePathSegment(doctype));
+        String body = executeWrite(connection, doctype, () -> clientFor(connection)
+                .post()
+                .uri(uri)
+                .header(HttpHeaders.AUTHORIZATION, connection.authorizationHeader())
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .body(writeJson(document))
+                .retrieve()
+                .body(String.class));
+        return parseDataNode(doctype, body).orElseThrow(() -> ErpErrorTranslator.translate(doctype,
+                new IllegalStateException("ERPNext 创建文档未返回 data")));
+    }
+
+    /**
+     * 更新文档。对应 {@code PUT /api/resource/{Doctype}/{name}}。
+     */
+    public JsonNode updateDoc(ErpConnection connection, String doctype, String name, Object document) {
+        URI uri = documentUri(connection, doctype, name);
+        String body = executeWrite(connection, doctype, () -> clientFor(connection)
+                .put()
+                .uri(uri)
+                .header(HttpHeaders.AUTHORIZATION, connection.authorizationHeader())
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .body(writeJson(document))
+                .retrieve()
+                .body(String.class));
+        return parseDataNode(doctype, body).orElseThrow(() -> ErpErrorTranslator.translate(doctype,
+                new IllegalStateException("ERPNext 更新文档未返回 data")));
+    }
+
+    /**
+     * 调用 Frappe RPC。对应 {@code POST /api/method/{method}}。
+     * 用于 submit、get_payment_entry 等标准方法，不按业务拆 HTTP 方法。
+     */
+    public JsonNode callMethod(ErpConnection connection, String method, Object args) {
+        URI uri = URI.create(connection.baseUrl() + "/api/method/" + method);
+        String body = executeWrite(connection, method, () -> clientFor(connection)
+                .post()
+                .uri(uri)
+                .header(HttpHeaders.AUTHORIZATION, connection.authorizationHeader())
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .body(writeJson(args == null ? Map.of() : args))
+                .retrieve()
+                .body(String.class));
+        return parseMessageNode(method, body);
+    }
+
+    /**
+     * 提交已存在文档。优先 {@code frappe.client.submit}，由 Adapter 传入完整 doc。
+     */
+    public JsonNode submitDoc(ErpConnection connection, JsonNode doc) {
+        String doctype = doc.path("doctype").asText("Document");
+        JsonNode submitted = callMethod(connection, "frappe.client.submit", Map.of("doc", toMap(doc)));
+        if (submitted.isMissingNode() || submitted.isNull()) {
+            throw ErpErrorTranslator.translate(doctype, new IllegalStateException("ERPNext submit 未返回文档"));
+        }
+        return submitted;
     }
 
     private String execute(ErpConnection connection, String doctype, URI uri) {
@@ -85,6 +158,19 @@ public class ErpRestClient {
         } catch (RuntimeException ex) {
             throw ErpErrorTranslator.translate(doctype, ex);
         }
+    }
+
+    private String executeWrite(ErpConnection connection, String doctype, java.util.function.Supplier<String> call) {
+        try {
+            return call.get();
+        } catch (RuntimeException ex) {
+            throw ErpErrorTranslator.translate(doctype, ex);
+        }
+    }
+
+    private URI documentUri(ErpConnection connection, String doctype, String name) {
+        return URI.create(connection.baseUrl() + RESOURCE_PATH
+                + encodePathSegment(doctype) + "/" + encodePathSegment(name));
     }
 
     private <T> List<T> parseDataArray(String doctype, String body, Class<T> type) {
@@ -103,19 +189,42 @@ public class ErpRestClient {
         }
     }
 
-    private <T> Optional<T> parseDataObject(String doctype, String body, Class<T> type) {
+    private Optional<JsonNode> parseDataNode(String doctype, String body) {
         if (body == null || body.isBlank()) {
             return Optional.empty();
         }
         try {
             JsonNode data = objectMapper.readTree(body).path("data");
-            if (!data.isObject()) {
-                return Optional.empty();
-            }
-            return Optional.of(objectMapper.convertValue(data, type));
-        } catch (JsonProcessingException | IllegalArgumentException ex) {
+            return data.isObject() ? Optional.of(data) : Optional.empty();
+        } catch (JsonProcessingException ex) {
             throw ErpErrorTranslator.translate(doctype, ex);
         }
+    }
+
+    private JsonNode parseMessageNode(String method, String body) {
+        if (body == null || body.isBlank()) {
+            throw ErpErrorTranslator.translate(method, new IllegalStateException("ERPNext 方法返回空响应"));
+        }
+        try {
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode message = root.get("message");
+            return message == null || message.isNull() || message.isMissingNode() ? root : message;
+        } catch (JsonProcessingException ex) {
+            throw ErpErrorTranslator.translate(method, ex);
+        }
+    }
+
+    private <T> T convert(String doctype, JsonNode node, Class<T> type) {
+        try {
+            return objectMapper.convertValue(node, type);
+        } catch (IllegalArgumentException ex) {
+            throw ErpErrorTranslator.translate(doctype, ex);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> toMap(JsonNode node) {
+        return objectMapper.convertValue(node, Map.class);
     }
 
     private URI buildListUri(ErpConnection connection, String doctype, ErpQuery query) {

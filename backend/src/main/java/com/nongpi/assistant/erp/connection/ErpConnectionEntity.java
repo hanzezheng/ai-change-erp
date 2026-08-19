@@ -45,6 +45,9 @@ public class ErpConnectionEntity {
     @Column(name = "default_warehouse", length = 128)
     private String defaultWarehouse;
 
+    @Column(name = "default_company", length = 140)
+    private String defaultCompany;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private ErpConnectionStatus status;
@@ -138,6 +141,14 @@ public class ErpConnectionEntity {
 
     public void setDefaultWarehouse(String defaultWarehouse) {
         this.defaultWarehouse = defaultWarehouse;
+    }
+
+    public String getDefaultCompany() {
+        return defaultCompany;
+    }
+
+    public void setDefaultCompany(String defaultCompany) {
+        this.defaultCompany = defaultCompany;
     }
 
     public ErpConnectionStatus getStatus() {

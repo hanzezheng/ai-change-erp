@@ -73,7 +73,7 @@ class ErpErrorTranslationTest {
     void mapsConnectionRefusedToErpUnavailable() {
         // 指向一个没有服务在监听的端口
         ErpConnection unreachable = new ErpConnection("T001", "http://127.0.0.1:1",
-                "k", "s", "Standard Selling", null, Duration.ofMillis(300), Duration.ofMillis(300));
+                "k", "s", "Standard Selling", null, null, Duration.ofMillis(300), Duration.ofMillis(300));
 
         assertThatThrownBy(() -> client.list(unreachable, ErpCustomer.DOCTYPE,
                 ErpQuery.create().fields("name"), ErpCustomer.class))

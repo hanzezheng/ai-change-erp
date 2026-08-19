@@ -39,6 +39,7 @@ public class ErpConnectionController {
                         request.apiSecret(),
                         request.sellingPriceList(),
                         request.defaultWarehouse(),
+                        request.defaultCompany(),
                         request.status(),
                         request.connectTimeoutMs(),
                         request.readTimeoutMs()
@@ -52,6 +53,7 @@ public class ErpConnectionController {
             String apiSecret,
             String sellingPriceList,
             String defaultWarehouse,
+            String defaultCompany,
             ErpConnectionStatus status,
             Integer connectTimeoutMs,
             Integer readTimeoutMs

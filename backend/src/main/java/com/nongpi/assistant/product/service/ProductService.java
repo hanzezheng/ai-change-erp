@@ -3,6 +3,7 @@ package com.nongpi.assistant.product.service;
 import com.nongpi.assistant.common.error.BusinessErrorCode;
 import com.nongpi.assistant.common.error.BusinessException;
 import com.nongpi.assistant.erp.adapter.ItemErpAdapter;
+import com.nongpi.assistant.erp.adapter.SalesOrderErpAdapter;
 import com.nongpi.assistant.erp.connection.ErpConnection;
 import com.nongpi.assistant.erp.connection.ErpConnectionProvider;
 import com.nongpi.assistant.identity.ProductAliasProvider;
@@ -25,35 +26,55 @@ public class ProductService {
     private static final int SELECTOR_RESULT_LIMIT = 30;
 
     private final ItemErpAdapter itemErpAdapter;
+    private final SalesOrderErpAdapter salesOrderErpAdapter;
     private final ErpConnectionProvider erpConnectionProvider;
     private final ProductAliasProvider productAliasProvider;
 
     public ProductService(ItemErpAdapter itemErpAdapter,
+                          SalesOrderErpAdapter salesOrderErpAdapter,
                           ErpConnectionProvider erpConnectionProvider,
                           ProductAliasProvider productAliasProvider) {
         this.itemErpAdapter = itemErpAdapter;
+        this.salesOrderErpAdapter = salesOrderErpAdapter;
         this.erpConnectionProvider = erpConnectionProvider;
         this.productAliasProvider = productAliasProvider;
     }
 
     /**
-     * 商品选择器。
-     *
-     * @param customerId 预留参数：将来用于「该客户常买商品」和历史成交价。
-     *                   本轮没有真实历史查询，因此只做存在性无关的透传，
-     *                   frequentItems 保持为空，不返回伪造的 lastDealPrice。
+     * 商品选择器。带 customerId 时，frequentItems 与 lastDealPrice 来自已提交 Sales Order。
      */
     public ProductSelectorResult selector(String keyword, String customerId) {
         TenantContext tenant = TenantContextHolder.require();
         ErpConnection connection = erpConnectionProvider.resolve(tenant);
-        List<ProductVariant> results = itemErpAdapter.search(connection, keyword, 0, SELECTOR_RESULT_LIMIT);
-        return new ProductSelectorResult(List.of(), withAliases(tenant, results));
+        List<ProductVariant> results = withAliases(tenant,
+                itemErpAdapter.search(connection, keyword, 0, SELECTOR_RESULT_LIMIT));
+        List<ProductVariant> frequent = List.of();
+        if (customerId != null && !customerId.isBlank()) {
+            List<String> itemCodes = salesOrderErpAdapter.frequentItemCodes(connection, customerId, 8);
+            frequent = withAliases(tenant, itemCodes.stream()
+                    .map(code -> itemErpAdapter.findByItemCode(connection, code))
+                    .flatMap(java.util.Optional::stream)
+                    .toList());
+            frequent = withLastDeal(connection, customerId, frequent);
+            results = withLastDeal(connection, customerId, results);
+        }
+        return new ProductSelectorResult(frequent, results);
     }
 
     public ProductVariant getByItemCode(String itemCode) {
         TenantContext tenant = TenantContextHolder.require();
         ErpConnection connection = erpConnectionProvider.resolve(tenant);
         ProductVariant variant = itemErpAdapter.findByItemCode(connection, itemCode)
+                .orElseThrow(() -> new BusinessException(BusinessErrorCode.ITEM_NOT_FOUND,
+                        BusinessErrorCode.ITEM_NOT_FOUND.defaultMessage(),
+                        Map.of("itemCode", itemCode)));
+        return withAliases(tenant, List.of(variant)).get(0);
+    }
+
+    public ProductVariant requireOrderableItem(String itemCode) {
+        TenantContext tenant = TenantContextHolder.require();
+        ErpConnection connection = erpConnectionProvider.resolve(tenant);
+        ProductVariant variant = itemErpAdapter.findOrderableByItemCode(connection, itemCode)
                 .orElseThrow(() -> new BusinessException(BusinessErrorCode.ITEM_NOT_FOUND,
                         BusinessErrorCode.ITEM_NOT_FOUND.defaultMessage(),
                         Map.of("itemCode", itemCode)));
@@ -70,7 +91,7 @@ public class ProductService {
      * @return 该 UOM 对应的合法条目（含与之绑定的参考价）
      */
     public AllowedUom requireAllowedUom(String itemCode, String uom) {
-        ProductVariant variant = getByItemCode(itemCode);
+        ProductVariant variant = requireOrderableItem(itemCode);
         if (uom == null || uom.isBlank()) {
             throw new BusinessException(BusinessErrorCode.INVALID_UOM, "未指定单位",
                     Map.of("itemCode", itemCode, "allowedUoms", uomNames(variant)));
@@ -81,6 +102,15 @@ public class ProductService {
                 .orElseThrow(() -> new BusinessException(BusinessErrorCode.INVALID_UOM,
                         "该商品不支持单位「" + uom + "」",
                         Map.of("itemCode", itemCode, "uom", uom, "allowedUoms", uomNames(variant))));
+    }
+
+    private List<ProductVariant> withLastDeal(ErpConnection connection, String customerId, List<ProductVariant> variants) {
+        List<ProductVariant> enriched = new ArrayList<>(variants.size());
+        for (ProductVariant variant : variants) {
+            var last = salesOrderErpAdapter.findLastDealPrice(connection, customerId, variant.itemCode(), variant.defaultUom());
+            enriched.add(last.map(price -> variant.withLastDealPrice(price.price())).orElse(variant));
+        }
+        return enriched;
     }
 
     private List<String> uomNames(ProductVariant variant) {
@@ -97,18 +127,7 @@ public class ProductService {
 
         List<ProductVariant> enriched = new ArrayList<>(variants.size());
         for (ProductVariant variant : variants) {
-            enriched.add(new ProductVariant(
-                    variant.productId(),
-                    variant.itemCode(),
-                    variant.productName(),
-                    variant.spec(),
-                    aliases.getOrDefault(variant.itemCode(), List.of()),
-                    variant.defaultUom(),
-                    variant.allowedUoms(),
-                    variant.referencePrice(),
-                    variant.priceUom(),
-                    variant.currency()
-            ));
+            enriched.add(variant.withAliases(aliases.getOrDefault(variant.itemCode(), List.of())));
         }
         return enriched;
     }

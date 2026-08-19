@@ -42,13 +42,21 @@ public final class FakeErpNext implements AutoCloseable {
             "Item Variant Attribute",
             "Item Price",
             "Item Reorder",
-            "Bin"
+            "Bin",
+            "Sales Order",
+            "Sales Order Item",
+            "Payment Entry",
+            "Payment Entry Reference",
+            "Mode of Payment",
+            "Mode of Payment Account",
+            "Company"
     );
 
     private final MockWebServer server = new MockWebServer();
     private final Map<String, MockResponse> listResponses = new LinkedHashMap<>();
     private final Map<String, MockResponse> docResponses = new LinkedHashMap<>();
     private final List<RecordedRequest> requests = new ArrayList<>();
+    private final FakeErpWriteEngine writeEngine = new FakeErpWriteEngine();
     private MockResponse fallback;
 
     public FakeErpNext() {
@@ -58,11 +66,15 @@ public final class FakeErpNext implements AutoCloseable {
                 requests.add(request);
                 String path = decodedPath(request);
                 MockResponse configured = docResponses.get(path);
-                if (configured == null) {
+                if (configured == null && "GET".equals(request.getMethod())) {
                     configured = doctypeOf(path).map(listResponses::get).orElse(null);
                 }
                 if (configured != null) {
                     return configured;
+                }
+                MockResponse written = writeEngine.handle(request);
+                if (written != null) {
+                    return written;
                 }
                 if (fallback != null) {
                     return fallback;
@@ -88,6 +100,7 @@ public final class FakeErpNext implements AutoCloseable {
         docResponses.clear();
         requests.clear();
         fallback = null;
+        writeEngine.reset();
     }
 
     public FakeErpNext onList(String doctype, String jsonBody) {
@@ -133,9 +146,18 @@ public final class FakeErpNext implements AutoCloseable {
                 "test-secret",
                 sellingPriceList,
                 "主仓库 - T",
+                "农批测试",
                 Duration.ofMillis(500),
                 Duration.ofMillis(500)
         );
+    }
+
+    public void hangNextWrite() {
+        writeEngine.hangNextWrite();
+    }
+
+    public void setDocstatus(String doctype, String name, int docstatus, String status) {
+        writeEngine.setDocstatus(doctype, name, docstatus, status);
     }
 
     public String baseUrl() {

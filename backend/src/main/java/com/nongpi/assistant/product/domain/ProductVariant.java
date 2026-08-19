@@ -33,6 +33,16 @@ public record ProductVariant(
         List<AllowedUom> allowedUoms,
         BigDecimal referencePrice,
         String priceUom,
-        String currency
+        String currency,
+        BigDecimal lastDealPrice
 ) {
+    public ProductVariant withAliases(List<String> aliases) {
+        return new ProductVariant(productId, itemCode, productName, spec, aliases, defaultUom, allowedUoms,
+                referencePrice, priceUom, currency, lastDealPrice);
+    }
+
+    public ProductVariant withLastDealPrice(BigDecimal lastDealPrice) {
+        return new ProductVariant(productId, itemCode, productName, spec, aliases, defaultUom, allowedUoms,
+                referencePrice, priceUom, currency, lastDealPrice);
+    }
 }

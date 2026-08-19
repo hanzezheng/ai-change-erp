@@ -23,6 +23,7 @@ public record ErpItem(
         @JsonProperty("item_group") String itemGroup,
         @JsonProperty("has_variants") Integer hasVariants,
         @JsonProperty("disabled") Integer disabled,
+        @JsonProperty("is_sales_item") Integer isSalesItem,
         @JsonProperty("safety_stock") BigDecimal safetyStock
 ) {
     public static final String DOCTYPE = "Item";
