@@ -1,0 +1,6 @@
+# 集成测试默认密钥。真实 ERPNext 凭据不得出现在本文件。
+app:
+  jwt:
+    secret: test-jwt-hmac-secret-key-32bytes-min
+  credential-encryption:
+    key: test-credential-master-key-32b!!

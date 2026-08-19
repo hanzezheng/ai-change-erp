@@ -32,7 +32,9 @@ Phase 1B：已用官方 `frappe_docker` 标准 ERPNext v16 做真实 Smoke Test�
 - Audit
 - ERP Connection 持久配置
 
-Phase 1A 的临时 Token → Tenant Filter 必须在本阶段替换为正式认证与授权。
+Phase 1A 的临时 Token → Tenant Filter 已在本阶段替换为正式认证与授权。
+
+状态：进行中。
 
 ### Phase 3：ERPNext 业务写链路
 

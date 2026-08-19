@@ -8,16 +8,18 @@ import com.nongpi.assistant.erp.dto.ErpItemPrice;
 import com.nongpi.assistant.erp.dto.ErpItemReorder;
 import com.nongpi.assistant.erp.dto.ErpUomConversion;
 import com.nongpi.assistant.erp.support.FakeErpNext;
+import com.nongpi.assistant.saas.membership.MembershipEntity;
+import com.nongpi.assistant.saas.membership.MembershipRole;
+import com.nongpi.assistant.saas.membership.MembershipStatus;
+import com.nongpi.assistant.saas.tenant.TenantEntity;
+import com.nongpi.assistant.saas.tenant.TenantStatus;
+import com.nongpi.assistant.saas.user.AppUserEntity;
+import com.nongpi.assistant.saas.user.UserStatus;
+import com.nongpi.assistant.support.AbstractSaasIntegrationTest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -27,26 +29,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * 主数据只读 API 的契约测试。
- *
- * <p>两个租户分别指向两台独立的假 ERPNext，用来验证租户隔离：
- * 这个结构同时覆盖了「每租户一套 ERPNext」的部署形态，
- * 也不妨碍将来两个租户共用同一个 baseUrl（AGENTS.md #20 的决策仍然开放）。
- */
-@SpringBootTest
-@AutoConfigureMockMvc
 @DisplayName("主数据只读 API")
-class MasterDataApiTest {
-
-    private static final String TOKEN_A = "token-tenant-a";
-    private static final String TOKEN_B = "token-tenant-b";
+class MasterDataApiTest extends AbstractSaasIntegrationTest {
 
     private static final FakeErpNext ERP_A = start();
     private static final FakeErpNext ERP_B = start();
 
-    @Autowired
-    private MockMvc mockMvc;
+    private String tokenA;
+    private String tokenB;
 
     private static FakeErpNext start() {
         try {
@@ -58,33 +48,21 @@ class MasterDataApiTest {
         }
     }
 
-    @DynamicPropertySource
-    static void erpProperties(DynamicPropertyRegistry registry) {
-        registry.add("app.tenants[0].tenant-id", () -> "T001");
-        registry.add("app.tenants[0].tenant-name", () -> "徐州水果档口");
-        registry.add("app.tenants[0].access-tokens[0]", () -> TOKEN_A);
-        registry.add("app.tenants[0].erp.base-url", ERP_A::baseUrl);
-        registry.add("app.tenants[0].erp.api-key", () -> "key-a");
-        registry.add("app.tenants[0].erp.api-secret", () -> "secret-a");
-        registry.add("app.tenants[0].erp.selling-price-list", () -> "Standard Selling");
-        registry.add("app.tenants[0].erp.connect-timeout", () -> "500ms");
-        registry.add("app.tenants[0].erp.read-timeout", () -> "500ms");
-
-        registry.add("app.tenants[1].tenant-id", () -> "T002");
-        registry.add("app.tenants[1].tenant-name", () -> "广州批发档口");
-        registry.add("app.tenants[1].access-tokens[0]", () -> TOKEN_B);
-        registry.add("app.tenants[1].erp.base-url", ERP_B::baseUrl);
-        registry.add("app.tenants[1].erp.api-key", () -> "key-b");
-        registry.add("app.tenants[1].erp.api-secret", () -> "secret-b");
-        registry.add("app.tenants[1].erp.selling-price-list", () -> "Standard Selling");
-        registry.add("app.tenants[1].erp.connect-timeout", () -> "500ms");
-        registry.add("app.tenants[1].erp.read-timeout", () -> "500ms");
-    }
-
     @BeforeEach
-    void resetFakes() {
+    void seedTenantsAndTokens() {
         ERP_A.reset();
         ERP_B.reset();
+
+        TenantEntity tenantA = newTenant("徐州水果档口", TenantStatus.ACTIVE);
+        TenantEntity tenantB = newTenant("广州批发档口", TenantStatus.ACTIVE);
+        AppUserEntity userA = newUser("owner-a", "password-a", UserStatus.ACTIVE);
+        AppUserEntity userB = newUser("owner-b", "password-b", UserStatus.ACTIVE);
+        MembershipEntity membershipA = newMembership(tenantA, userA, MembershipRole.STAFF, MembershipStatus.ACTIVE);
+        MembershipEntity membershipB = newMembership(tenantB, userB, MembershipRole.STAFF, MembershipStatus.ACTIVE);
+        newErpConnection(tenantA, ERP_A.baseUrl(), "key-a", "secret-a");
+        newErpConnection(tenantB, ERP_B.baseUrl(), "key-b", "secret-b");
+        tokenA = accessToken(userA, membershipA);
+        tokenB = accessToken(userB, membershipB);
     }
 
     @AfterAll
@@ -97,8 +75,8 @@ class MasterDataApiTest {
     @DisplayName("没有 Access Token 时拒绝访问")
     void rejectsRequestWithoutToken() throws Exception {
         mockMvc.perform(get("/api/v1/customers"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("TOKEN_INVALID"))
                 .andExpect(jsonPath("$.traceId").exists());
 
         assertThat(ERP_A.requests()).isEmpty();
@@ -108,17 +86,15 @@ class MasterDataApiTest {
     @Test
     @DisplayName("客户端自己声明 tenantId 不产生任何效果")
     void ignoresClientSuppliedTenantId() throws Exception {
-        // 只带 tenantId 不带 token：不能通过
-        mockMvc.perform(get("/api/v1/customers").header("X-Tenant-Id", "T001"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(get("/api/v1/customers").header("X-Tenant-Id", "whatever"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("TOKEN_INVALID"));
 
         ERP_A.onList(ErpCustomer.DOCTYPE, "{\"data\": [{\"name\": \"A-CUST\", \"customer_name\": \"甲租户客户\"}]}");
         ERP_B.onList(ErpCustomer.DOCTYPE, "{\"data\": [{\"name\": \"B-CUST\", \"customer_name\": \"乙租户客户\"}]}");
 
-        // 用 A 的 token 但声称自己是 T002：仍然只能看到 A 的数据
         mockMvc.perform(get("/api/v1/customers")
-                        .header("Authorization", "Bearer " + TOKEN_A)
+                        .header("Authorization", bearer(tokenA))
                         .header("X-Tenant-Id", "T002"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].customerId").value("A-CUST"));
@@ -132,11 +108,11 @@ class MasterDataApiTest {
         ERP_A.onList(ErpCustomer.DOCTYPE, "{\"data\": [{\"name\": \"A-CUST\", \"customer_name\": \"甲租户客户\"}]}");
         ERP_B.onList(ErpCustomer.DOCTYPE, "{\"data\": [{\"name\": \"B-CUST\", \"customer_name\": \"乙租户客户\"}]}");
 
-        mockMvc.perform(get("/api/v1/customers").header("Authorization", "Bearer " + TOKEN_A))
+        mockMvc.perform(get("/api/v1/customers").header("Authorization", bearer(tokenA)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].customerName").value("甲租户客户"));
 
-        mockMvc.perform(get("/api/v1/customers").header("Authorization", "Bearer " + TOKEN_B))
+        mockMvc.perform(get("/api/v1/customers").header("Authorization", bearer(tokenB)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].customerName").value("乙租户客户"));
 
@@ -150,8 +126,8 @@ class MasterDataApiTest {
     @DisplayName("无效 Access Token 被拒绝")
     void rejectsUnknownToken() throws Exception {
         mockMvc.perform(get("/api/v1/customers").header("Authorization", "Bearer 伪造的令牌"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("TOKEN_INVALID"));
     }
 
     @Test
@@ -164,7 +140,7 @@ class MasterDataApiTest {
                 }]}
                 """);
 
-        mockMvc.perform(get("/api/v1/customers").param("q", "韩").header("Authorization", "Bearer " + TOKEN_A))
+        mockMvc.perform(get("/api/v1/customers").param("q", "韩").header("Authorization", bearer(tokenA)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].customerId").value("CUST-001"))
                 .andExpect(jsonPath("$.content[0].customerName").value("韩兆亮"))
@@ -189,7 +165,7 @@ class MasterDataApiTest {
         mockMvc.perform(get("/api/v1/customers")
                         .param("page", "1")
                         .param("pageSize", "2")
-                        .header("Authorization", "Bearer " + TOKEN_A))
+                        .header("Authorization", bearer(tokenA)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
                 .andExpect(jsonPath("$.hasMore").value(true));
@@ -200,7 +176,7 @@ class MasterDataApiTest {
     void rejectsInvalidPageSize() throws Exception {
         mockMvc.perform(get("/api/v1/customers")
                         .param("pageSize", "9999")
-                        .header("Authorization", "Bearer " + TOKEN_A))
+                        .header("Authorization", bearer(tokenA)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
@@ -210,7 +186,7 @@ class MasterDataApiTest {
     void returnsCustomerNotFound() throws Exception {
         ERP_A.onDocStatus(ErpCustomer.DOCTYPE, "CUST-404", 404, "{\"exception\": \"DoesNotExistError\"}");
 
-        mockMvc.perform(get("/api/v1/customers/CUST-404").header("Authorization", "Bearer " + TOKEN_A))
+        mockMvc.perform(get("/api/v1/customers/CUST-404").header("Authorization", bearer(tokenA)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CUSTOMER_NOT_FOUND"))
                 .andExpect(jsonPath("$.details.customerId").value("CUST-404"));
@@ -223,7 +199,7 @@ class MasterDataApiTest {
                 {"data": {"name": "CUST-001", "customer_name": "韩兆亮", "mobile_no": "13800003456"}}
                 """);
 
-        mockMvc.perform(get("/api/v1/customers/CUST-001").header("Authorization", "Bearer " + TOKEN_A))
+        mockMvc.perform(get("/api/v1/customers/CUST-001").header("Authorization", bearer(tokenA)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.customerId").value("CUST-001"))
                 .andExpect(jsonPath("$.customerName").value("韩兆亮"));
@@ -235,7 +211,7 @@ class MasterDataApiTest {
         ERP_A.onList(ErpCustomer.DOCTYPE, "{\"data\": [{\"name\": \"CUST-001\", \"customer_name\": \"韩兆亮\"}]}");
 
         mockMvc.perform(get("/api/v1/customers/selector").param("q", "老韩")
-                        .header("Authorization", "Bearer " + TOKEN_A))
+                        .header("Authorization", bearer(tokenA)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recent").isEmpty())
                 .andExpect(jsonPath("$.results[0].customerId").value("CUST-001"));
@@ -268,14 +244,11 @@ class MasterDataApiTest {
                 """);
 
         mockMvc.perform(get("/api/v1/products/selector").param("q", "八零")
-                        .header("Authorization", "Bearer " + TOKEN_A))
+                        .header("Authorization", bearer(tokenA)))
                 .andExpect(status().isOk())
-                // 常买商品需要订单历史，本轮为空数组
                 .andExpect(jsonPath("$.frequentItems").isEmpty())
-                // productId 只做商品族分组，itemCode 才是可交易 Item 的正式身份
                 .andExpect(jsonPath("$.results[0].productId").value("APPLE"))
                 .andExpect(jsonPath("$.results[0].itemCode").value("APPLE-80"))
-                // 不再暴露 ERPNext 里不存在的 variantId
                 .andExpect(jsonPath("$.results[0].variantId").doesNotExist())
                 .andExpect(jsonPath("$.results[0].productName").value("苹果80果"))
                 .andExpect(jsonPath("$.results[0].spec").value("80mm"))
@@ -306,7 +279,7 @@ class MasterDataApiTest {
                 """);
         ERP_A.onList(ErpItemReorder.DOCTYPE, "{\"data\": []}");
 
-        mockMvc.perform(get("/api/v1/inventory").header("Authorization", "Bearer " + TOKEN_A))
+        mockMvc.perform(get("/api/v1/inventory").header("Authorization", bearer(tokenA)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].itemCode").value("APPLE-80"))
                 .andExpect(jsonPath("$.content[0].productId").value("APPLE"))
@@ -316,7 +289,6 @@ class MasterDataApiTest {
                 .andExpect(jsonPath("$.content[0].quantity").value(450.0))
                 .andExpect(jsonPath("$.content[0].stockUom").value("箱"))
                 .andExpect(jsonPath("$.content[0].warehouse").value("主仓库 - T"))
-                // 没有预警配置时不返回 lowStock / alertQty，也不返回任何库存百分比
                 .andExpect(jsonPath("$.content[0].lowStock").doesNotExist())
                 .andExpect(jsonPath("$.content[0].alertQty").doesNotExist())
                 .andExpect(jsonPath("$.content[0].stockPercent").doesNotExist());
@@ -328,7 +300,7 @@ class MasterDataApiTest {
         ERP_A.onListStatus(ErpCustomer.DOCTYPE, 500,
                 "{\"exception\": \"pymysql.err.ProgrammingError: tabCustomer\"}");
 
-        mockMvc.perform(get("/api/v1/customers").header("Authorization", "Bearer " + TOKEN_A))
+        mockMvc.perform(get("/api/v1/customers").header("Authorization", bearer(tokenA)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("ERP_UNAVAILABLE"))
                 .andExpect(jsonPath("$.message").value("ERP 系统暂时不可用"))

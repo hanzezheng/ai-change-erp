@@ -2,68 +2,84 @@
 
 AI 农批经营助手业务后端（Java 21 + Spring Boot 3）。
 
-当前阶段只包含 **ERPNext 主数据只读链路**：客户、商品 / 变体、合法单位、参考价格、库存基础查询。
-订单、收款、AI、ASR 均未开发。
+当前阶段包含 **SaaS 基础设施** 与 **ERPNext 主数据只读链路**。
+订单、收款、AI、ASR、Identity 均未开发。
 
 架构约束见仓库根目录 `AGENTS.md` 与 `docs/`。
 
 ## 运行
 
-```bash
-./mvnw spring-boot:run
-```
+需要 PostgreSQL。集成测试通过 Testcontainers 自动启动，不使用 H2。
 
 ```bash
 ./mvnw test
 ```
 
-测试全部使用本地假 ERPNext（MockWebServer），不需要真实 ERPNext 或外网。
+```bash
+export APP_JWT_SECRET='至少32字符的签名密钥........'
+export APP_CREDENTIAL_ENCRYPTION_KEY='至少一段应用级主密钥'
+export DATABASE_URL=jdbc:postgresql://localhost:5432/nongpi
+export DATABASE_USERNAME=nongpi
+export DATABASE_PASSWORD=nongpi
+./mvnw spring-boot:run
+```
+
+local profile 引导管理员（没有这些环境变量就不会创建默认账号）：
+
+```bash
+export APP_BOOTSTRAP_LOGIN=boss
+export APP_BOOTSTRAP_PASSWORD=...
+export APP_BOOTSTRAP_TENANT_NAME=农批测试档口
+export ERP_BASE_URL=http://localhost:8080
+export ERP_SITE_NAME=frontend
+export ERP_API_KEY=...
+export ERP_API_SECRET=...
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+生产 schema 只由 Flyway 演进，`ddl-auto=validate`。禁止在 migration 里写默认密码或真实 API Secret。
 
 ## 配置
 
-租户与 ERPNext 连接来自服务端配置。默认 `app.tenants` 为空，此时所有业务接口返回
-`PERMISSION_DENIED`，不存在「默认租户」这种回落。
-
-```yaml
-app:
-  tenants:
-    - tenant-id: T001
-      tenant-name: 徐州水果档口
-      access-tokens:
-        - ${TENANT_T001_TOKEN}
-      erp:
-        base-url: https://erp.example.com
-        api-key: ${TENANT_T001_ERP_API_KEY}
-        api-secret: ${TENANT_T001_ERP_API_SECRET}
-        selling-price-list: Standard Selling
-        default-warehouse: 主仓库 - T
-        connect-timeout: 3s
-        read-timeout: 10s
-```
+一个 SaaS Tenant 对应一个 Frappe / ERPNext Site（`AGENTS.md` #20，已冻结）。
+ERP 连接保存在 `erp_connection` 表，API Key / Secret 以 AES-GCM 密文存储。
+Master Key 来自 `APP_CREDENTIAL_ENCRYPTION_KEY`，不入库、不进 Git、不写日志。
 
 `selling-price-list` 未配置时不查询商品价格，`referencePrice` 为空 —— 系统不会去猜某个价目表。
 
-一个 SaaS Tenant 对应一个 Frappe / ERPNext Site（`AGENTS.md` #20，已冻结）。
-每个租户配置自己的 `erp.base-url`。不要建设 `ErpInstance` 领域模型，也不要让多个 Tenant 共享同一个 Site。
+不要建设 `ErpInstance` 领域模型，也不要让多个 Tenant 共享同一个 Site。
 
-## 认证（临时实现）
+## 认证
 
-`TenantContextFilter` 从 `Authorization: Bearer <token>` 解析租户，Token 只存在于服务端配置。
+- 登录：`login + password`，BCrypt。Access Token（JWT，约 15 分钟）+ Refresh Token（opaque，约 30 天）
+- JWT 含 `userId` / `tenantId` / `membershipId` / `role`，签名密钥来自 `APP_JWT_SECRET`
+- Refresh Token 只存 SHA-256，原始值只发给客户端
+- 多租户用户登录必须选择 Tenant，否则 `TENANT_SELECTION_REQUIRED`
+- `X-Tenant-Id` 一律忽略
+- `TenantContextHolder` 仍由现有 Adapter 使用，来源改为已验证的 JWT Membership
 
-请求头里的 `X-Tenant-Id` 一律忽略：客户端不能自己声明租户身份。
-
-正式用户体系（User / Membership / 权限）属于 Phase 2，届时替换 `TenantResolver` 实现，
-下游 `TenantContextHolder` 用法不变。
+公开接口：`POST /api/v1/auth/login`、`POST /api/v1/auth/refresh`、`GET /actuator/health`。
+其余 `/api/v1/**` 需要认证。OWNER / ADMIN 可改 ERP 连接与 Membership；STAFF 及以上可访问只读经营 API。
 
 ## 接口
 
-| 方法  | 路径                             | 说明                                     |
-| ----- | -------------------------------- | ---------------------------------------- |
-| `GET` | `/api/v1/customers`              | 客户列表 / 搜索，分页                    |
-| `GET` | `/api/v1/customers/{customerId}` | 客户详情                                 |
-| `GET` | `/api/v1/customers/selector`     | 客户选择器                               |
-| `GET` | `/api/v1/products/selector`      | 商品选择器，含 allowedUoms 与参考价格    |
-| `GET` | `/api/v1/inventory`              | 库存查询，支持关键字 / 低库存 / 仓库筛选 |
+| 方法   | 路径                             | 说明                                     |
+| ------ | -------------------------------- | ---------------------------------------- |
+| `POST` | `/api/v1/auth/login`             | 登录                                     |
+| `POST` | `/api/v1/auth/refresh`           | 刷新 Access Token                        |
+| `POST` | `/api/v1/auth/logout`            | 作废 Refresh Token                       |
+| `POST` | `/api/v1/auth/switch-tenant`     | 切换当前企业                             |
+| `GET`  | `/api/v1/me`                     | 当前用户与租户                           |
+| `GET`  | `/api/v1/memberships`            | 当前企业成员（ADMIN+）                   |
+| `POST` | `/api/v1/memberships`            | 新增成员（ADMIN+）                       |
+| `PATCH`| `/api/v1/memberships/{id}`       | 更新成员角色/状态（ADMIN+）              |
+| `GET`  | `/api/v1/erp-connection`         | 当前企业 ERP 连接（无凭据，ADMIN+）      |
+| `PUT`  | `/api/v1/erp-connection`         | 创建/更新 ERP 连接（ADMIN+）             |
+| `GET`  | `/api/v1/customers`              | 客户列表 / 搜索，分页                    |
+| `GET`  | `/api/v1/customers/{customerId}` | 客户详情                                 |
+| `GET`  | `/api/v1/customers/selector`     | 客户选择器                               |
+| `GET`  | `/api/v1/products/selector`      | 商品选择器，含 allowedUoms 与参考价格    |
+| `GET`  | `/api/v1/inventory`              | 库存查询，支持关键字 / 低库存 / 仓库筛选 |
 
 ## 商品身份模型（已冻结）
 
@@ -165,24 +181,18 @@ ERPNext REST 无法把 `Bin` 与 `Item Reorder` 做联表分页过滤。当前�
 - Product Selector 没有独立 ERP API，当前最多返回 30 条
 - 搜索是字段 LIKE，不是全文检索
 
-## 技术决策记录（Phase 1，已追认）
+## 技术决策记录
 
 | 决策                                          | 状态                                    |
 | --------------------------------------------- | --------------------------------------- |
-| Phase 1 不引入 PostgreSQL                     | 通过                                    |
-| Phase 1 不引入 Spring Security                | 通过，仅限当前只读阶段                  |
-| Token → Tenant Filter                         | 临时实现，Phase 2 必须替换              |
-| 正式 Authentication / Membership              | Phase 2 必须完成                        |
+| Phase 1 临时 Token → Tenant Filter            | 已替换为 Spring Security + JWT          |
+| PostgreSQL + Flyway                           | Phase 2 已落地                          |
+| Spring Security / User / Membership           | Phase 2 已落地                          |
+| 数据库 `ErpConnectionProvider`                | Phase 2 已落地，Adapter 接口不变        |
+| ERP 凭据 AES-GCM 加密                         | Phase 2 已落地，Master Key 来自环境变量 |
 | 一个 SaaS Tenant 对应一个 Frappe/ERPNext Site | 已冻结；禁止多 Tenant 共享 Site         |
-| `ErpConnectionProvider` 抽象                  | 保留，按租户解析 Site 连接              |
 
 补充说明：
 
-- **不引入 PostgreSQL**：本阶段是纯只读链路，没有需要持久化的 SaaS 事实。
-  租户与 ERP 连接来自服务端配置，藏在 `TenantResolver` / `ErpConnectionProvider` 接口后，
-  Phase 2 用数据库实现替换即可，接口不变。
-- **不引入 Spring Security**：只读阶段用一个 Servlet Filter 完成 Token → Tenant 解析已经足够。
-  这是临时实现，**Phase 2 必须替换成正式 Authentication / Authorization / Membership**，
-  在此之前不要在其上叠加权限逻辑。
 - **部署模型已冻结**：一个 SaaS Tenant 对应一个 Frappe/ERPNext Site。`ErpConnectionProvider`
-  按租户返回该 Site 的连接。不要建设 `ErpInstance`，也不要把 Site URL 写进业务 Service。
+  按租户从数据库解密该 Site 的连接。不要建设 `ErpInstance`，也不要把 Site URL 写进业务 Service。
