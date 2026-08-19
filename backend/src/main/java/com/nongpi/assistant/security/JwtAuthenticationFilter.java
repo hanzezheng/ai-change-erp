@@ -83,7 +83,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     membership.getUser().getDisplayName(),
                     membership.getTenant().getName()
             );
-            SecurityContextHolder.getContext().setAuthentication(new UserAuthentication(principal, token));
+            SecurityContextHolder.getContext().setAuthentication(new UserAuthentication(principal));
             chain.doFilter(request, response);
         } catch (JwtService.TokenExpiredException ex) {
             write(request, response, BusinessErrorCode.TOKEN_EXPIRED);
