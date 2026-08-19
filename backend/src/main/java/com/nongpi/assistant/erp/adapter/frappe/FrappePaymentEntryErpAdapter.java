@@ -10,6 +10,7 @@ import com.nongpi.assistant.erp.adapter.PaymentEntryErpAdapter;
 import com.nongpi.assistant.erp.client.ErpFilter;
 import com.nongpi.assistant.erp.client.ErpQuery;
 import com.nongpi.assistant.erp.client.ErpRestClient;
+import com.nongpi.assistant.erp.client.ErpWriteOutcomeUnknownException;
 import com.nongpi.assistant.erp.connection.ErpConnection;
 import com.nongpi.assistant.erp.dto.ErpModeOfPayment;
 import com.nongpi.assistant.erp.dto.ErpModeOfPaymentAccount;
@@ -102,7 +103,8 @@ public class FrappePaymentEntryErpAdapter implements PaymentEntryErpAdapter {
         JsonNode created = erpRestClient.createDoc(connection, ErpPaymentEntry.DOCTYPE, payload);
         String paymentId = ErpValues.trimToNull(created.path("name").asText(null));
         if (paymentId == null) {
-            throw new BusinessException(BusinessErrorCode.INTERNAL_ERROR, "ERPNext 创建 Payment Entry 未返回 name");
+            throw new ErpWriteOutcomeUnknownException(
+                    "ERPNext 创建 Payment Entry 已成功但未返回 name");
         }
         return paymentId;
     }

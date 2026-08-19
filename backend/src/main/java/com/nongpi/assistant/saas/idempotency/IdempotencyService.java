@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nongpi.assistant.common.error.BusinessErrorCode;
 import com.nongpi.assistant.common.error.BusinessException;
+import com.nongpi.assistant.erp.client.ErpWriteOutcomeUnknownException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
@@ -94,8 +95,9 @@ public class IdempotencyService {
             throw ex;
         }
         if (resourceId == null || resourceId.isBlank()) {
-            abandon(record.getId());
-            throw new BusinessException(BusinessErrorCode.INTERNAL_ERROR, "ERP 写入未返回资源 ID");
+            markUnknown(record.getId());
+            throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_OUTCOME_UNKNOWN,
+                    BusinessErrorCode.IDEMPOTENCY_OUTCOME_UNKNOWN.defaultMessage());
         }
         succeed(record.getId(), resourceId);
         try {
@@ -142,6 +144,9 @@ public class IdempotencyService {
     private static boolean isUnknownOutcome(Throwable ex) {
         Throwable current = ex;
         while (current != null) {
+            if (current instanceof ErpWriteOutcomeUnknownException) {
+                return true;
+            }
             if (current instanceof HttpTimeoutException
                     || current instanceof SocketTimeoutException
                     || current instanceof ResourceAccessException) {

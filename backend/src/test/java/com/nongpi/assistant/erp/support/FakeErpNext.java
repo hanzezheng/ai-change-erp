@@ -168,6 +168,20 @@ public final class FakeErpNext implements AutoCloseable {
         writeEngine.hangNextWrite();
     }
 
+    public void nextCreateMalformed() {
+        writeEngine.nextCreateResponse(200, "<<<not-json", true);
+    }
+
+    public void nextCreateMissingName() {
+        writeEngine.nextCreateResponse(200, "{\"data\":{\"docstatus\":0}}", true);
+    }
+
+    public void nextCreateValidationError() {
+        writeEngine.nextCreateResponse(417,
+                "{\"exc_type\":\"ValidationError\",\"exception\":\"frappe.exceptions.ValidationError: qty must be greater than 0\"}",
+                false);
+    }
+
     public void failNextList(String doctype, int status) {
         failNextLists.put(doctype, status);
     }
@@ -178,6 +192,14 @@ public final class FakeErpNext implements AutoCloseable {
 
     public int paymentCount() {
         return writeEngine.paymentCount();
+    }
+
+    public int salesOrderCreateCalls() {
+        return writeEngine.salesOrderCreateCalls();
+    }
+
+    public int paymentCreateCalls() {
+        return writeEngine.paymentCreateCalls();
     }
 
     public JsonNode lastGetPaymentEntryArgs() {

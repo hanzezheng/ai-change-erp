@@ -1,6 +1,7 @@
 package com.nongpi.assistant.common.error;
 
 import com.nongpi.assistant.common.web.TraceIdFilter;
+import com.nongpi.assistant.erp.client.ErpWriteOutcomeUnknownException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +59,16 @@ public class GlobalExceptionHandler {
         BusinessErrorCode code = BusinessErrorCode.PERMISSION_DENIED;
         return ResponseEntity.status(code.httpStatus())
                 .body(ApiErrorResponse.of(code, code.defaultMessage(), TraceIdFilter.from(request), Map.of()));
+    }
+
+    @ExceptionHandler(ErpWriteOutcomeUnknownException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnknownWrite(ErpWriteOutcomeUnknownException ex,
+                                                               HttpServletRequest request) {
+        String traceId = TraceIdFilter.from(request);
+        log.error("[{}] {} {} 外部写结果未知", traceId, request.getMethod(), request.getRequestURI(), ex);
+        BusinessErrorCode code = BusinessErrorCode.IDEMPOTENCY_OUTCOME_UNKNOWN;
+        return ResponseEntity.status(code.httpStatus())
+                .body(ApiErrorResponse.of(code, code.defaultMessage(), traceId, Map.of()));
     }
 
     /**

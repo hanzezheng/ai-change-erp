@@ -38,6 +38,11 @@ final class FakeErpWriteEngine {
     private LocalDateTime clock = LocalDateTime.of(2026, 8, 19, 12, 0, 0);
     private boolean hangNextWrite;
     private JsonNode lastGetPaymentEntryArgs;
+    private Integer nextCreateStatus;
+    private String nextCreateBody;
+    private boolean nextCreatePersist = true;
+    private int salesOrderCreateCalls;
+    private int paymentCreateCalls;
 
     FakeErpWriteEngine() {
         seedPaymentMethods();
@@ -54,11 +59,22 @@ final class FakeErpWriteEngine {
         clock = LocalDateTime.of(2026, 8, 19, 12, 0, 0);
         hangNextWrite = false;
         lastGetPaymentEntryArgs = null;
+        nextCreateStatus = null;
+        nextCreateBody = null;
+        nextCreatePersist = true;
+        salesOrderCreateCalls = 0;
+        paymentCreateCalls = 0;
         seedPaymentMethods();
     }
 
     void hangNextWrite() {
         hangNextWrite = true;
+    }
+
+    void nextCreateResponse(int status, String body, boolean persist) {
+        nextCreateStatus = status;
+        nextCreateBody = body;
+        nextCreatePersist = persist;
     }
 
     void setDocstatus(String doctype, String name, int docstatus, String status) {
@@ -164,7 +180,18 @@ final class FakeErpWriteEngine {
     }
 
     private MockResponse create(String doctype, JsonNode body) {
+        Integer overrideStatus = nextCreateStatus;
+        String overrideBody = nextCreateBody;
+        boolean persist = nextCreatePersist;
+        nextCreateStatus = null;
+        nextCreateBody = null;
+        nextCreatePersist = true;
+
         if (ErpSalesOrder.equals(doctype)) {
+            salesOrderCreateCalls++;
+            if (overrideBody != null && !persist) {
+                return json(overrideStatus, overrideBody);
+            }
             ObjectNode order = MAPPER.createObjectNode();
             String name = "SAL-ORD-" + String.format("%05d", orderSeq.getAndIncrement());
             order.put("name", name);
@@ -182,9 +209,16 @@ final class FakeErpWriteEngine {
             recalc(order);
             stampNew(order);
             salesOrders.put(name, order);
+            if (overrideBody != null) {
+                return json(overrideStatus, overrideBody);
+            }
             return data(order);
         }
         if (ErpPayment.equals(doctype)) {
+            paymentCreateCalls++;
+            if (overrideBody != null && !persist) {
+                return json(overrideStatus, overrideBody);
+            }
             ObjectNode pe = body.deepCopy();
             if (!(pe instanceof ObjectNode node)) {
                 return json(400, "{\"exc_type\":\"ValidationError\"}");
@@ -200,6 +234,9 @@ final class FakeErpWriteEngine {
             annotateReferences(node, name);
             stampNew(node);
             payments.put(name, node);
+            if (overrideBody != null) {
+                return json(overrideStatus, overrideBody);
+            }
             return data(node);
         }
         return null;
@@ -356,6 +393,14 @@ final class FakeErpWriteEngine {
 
     int paymentCount() {
         return payments.size();
+    }
+
+    int salesOrderCreateCalls() {
+        return salesOrderCreateCalls;
+    }
+
+    int paymentCreateCalls() {
+        return paymentCreateCalls;
     }
 
     JsonNode lastGetPaymentEntryArgs() {

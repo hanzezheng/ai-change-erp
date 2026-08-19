@@ -94,8 +94,7 @@ public class ErpRestClient {
                 .body(writeJson(document))
                 .retrieve()
                 .body(String.class));
-        return parseDataNode(doctype, body).orElseThrow(() -> ErpErrorTranslator.translate(doctype,
-                new IllegalStateException("ERPNext 创建文档未返回 data")));
+        return parseCreatedDocument(doctype, body);
     }
 
     /**
@@ -186,6 +185,25 @@ public class ErpRestClient {
             return objectMapper.convertValue(data, listType);
         } catch (JsonProcessingException | IllegalArgumentException ex) {
             throw ErpErrorTranslator.translate(doctype, ex);
+        }
+    }
+
+    /**
+     * CREATE 在 HTTP 2xx 之后如果无法解析出 data 对象，不能当成明确失败：
+     * ERPNext 可能已经建好文档。只读解析仍走 {@link #parseDataNode}。
+     */
+    private JsonNode parseCreatedDocument(String doctype, String body) {
+        if (body == null || body.isBlank()) {
+            throw new ErpWriteOutcomeUnknownException("ERPNext 创建 " + doctype + " 返回空响应");
+        }
+        try {
+            JsonNode data = objectMapper.readTree(body).path("data");
+            if (!data.isObject()) {
+                throw new ErpWriteOutcomeUnknownException("ERPNext 创建 " + doctype + " 未返回 data 对象");
+            }
+            return data;
+        } catch (JsonProcessingException ex) {
+            throw new ErpWriteOutcomeUnknownException("ERPNext 创建 " + doctype + " 的响应无法解析", ex);
         }
     }
 

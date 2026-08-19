@@ -470,6 +470,110 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
     }
 
     @Test
+    @DisplayName("Sales Order create 2xx 但响应无法解析时标 UNKNOWN，禁止再次 create")
+    void createOrderMalformedResponseIsUnknownAndDoesNotRetry() throws Exception {
+        ERP.nextCreateMalformed();
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-malformed")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(twoItemJson()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_OUTCOME_UNKNOWN"));
+        assertThat(ERP.salesOrderCount()).isEqualTo(1);
+        assertThat(ERP.salesOrderCreateCalls()).isEqualTo(1);
+        assertUnknownRecord();
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-malformed")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(twoItemJson()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_OUTCOME_UNKNOWN"));
+        assertThat(ERP.salesOrderCreateCalls()).isEqualTo(1);
+        assertThat(ERP.salesOrderCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Sales Order create 2xx 但缺少 name 时标 UNKNOWN，禁止再次 create")
+    void createOrderMissingNameIsUnknownAndDoesNotRetry() throws Exception {
+        ERP.nextCreateMissingName();
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-no-name")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(twoItemJson()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_OUTCOME_UNKNOWN"));
+        assertThat(ERP.salesOrderCount()).isEqualTo(1);
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-no-name")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(twoItemJson()))
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_OUTCOME_UNKNOWN"));
+        assertThat(ERP.salesOrderCreateCalls()).isEqualTo(1);
+        assertUnknownRecord();
+    }
+
+    @Test
+    @DisplayName("Payment Entry create 2xx 响应 malformed 时标 UNKNOWN，禁止再次 create")
+    void createPaymentMalformedResponseIsUnknownAndDoesNotRetry() throws Exception {
+        String orderId = submitTwoItem("k-pay-malformed-order");
+        ERP.nextCreateMalformed();
+        mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-pay-malformed")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(paymentJson(orderId, 1000, "微信")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_OUTCOME_UNKNOWN"));
+        assertThat(ERP.paymentCount()).isEqualTo(1);
+        assertThat(ERP.paymentCreateCalls()).isEqualTo(1);
+        mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-pay-malformed")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(paymentJson(orderId, 1000, "微信")))
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_OUTCOME_UNKNOWN"));
+        assertThat(ERP.paymentCreateCalls()).isEqualTo(1);
+        assertThat(ERP.paymentCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("ERP 明确 417 ValidationError 不是 UNKNOWN，abandon 后可重试")
+    void createOrderValidationErrorIsNotUnknown() throws Exception {
+        ERP.nextCreateValidationError();
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-417")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(twoItemJson()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ERP_VALIDATION_FAILED"));
+        assertThat(idempotencyRecordRepository.findAll()).isEmpty();
+        assertThat(ERP.salesOrderCount()).isEqualTo(0);
+        JsonNode created = createDraft(twoItemJson(), "k-417");
+        assertThat(created.path("orderId").asText()).isNotBlank();
+        assertThat(ERP.salesOrderCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Prepare 校验失败 abandon 后，修正请求可用同一 key 重新创建")
+    void validationFailureAllowsRetryWithCorrectedRequest() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-val-retry")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderJson("韩兆亮", apple(0, "箱", 68))))
+                .andExpect(jsonPath("$.code").value("INVALID_QUANTITY"));
+        assertThat(idempotencyRecordRepository.findAll()).isEmpty();
+        JsonNode created = createDraft(twoItemJson(), "k-val-retry");
+        assertThat(created.path("orderId").asText()).isNotBlank();
+        assertThat(ERP.salesOrderCount()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("Create Order 成功后商品停用，相同 key 仍 replay 原 orderId")
     void replayCreateOrderIgnoresLaterItemChange() throws Exception {
         JsonNode first = createDraft(twoItemJson(), "k-replay-item");
@@ -960,6 +1064,14 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
                         .content(json))
                 .andExpect(status().isOk())
                 .andReturn());
+    }
+
+    private void assertUnknownRecord() {
+        var records = idempotencyRecordRepository.findAll();
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).getStatus()).isEqualTo(
+                com.nongpi.assistant.saas.idempotency.IdempotencyStatus.UNKNOWN);
+        assertThat(records.get(0).getResourceId()).isNull();
     }
 
     private JsonNode read(MvcResult result) throws Exception {

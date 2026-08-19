@@ -10,6 +10,7 @@ import com.nongpi.assistant.erp.adapter.SalesOrderErpAdapter;
 import com.nongpi.assistant.erp.client.ErpFilter;
 import com.nongpi.assistant.erp.client.ErpQuery;
 import com.nongpi.assistant.erp.client.ErpRestClient;
+import com.nongpi.assistant.erp.client.ErpWriteOutcomeUnknownException;
 import com.nongpi.assistant.erp.connection.ErpConnection;
 import com.nongpi.assistant.erp.dto.ErpItem;
 import com.nongpi.assistant.erp.dto.ErpItemAttribute;
@@ -70,7 +71,8 @@ public class FrappeSalesOrderErpAdapter implements SalesOrderErpAdapter {
         JsonNode created = erpRestClient.createDoc(connection, ErpSalesOrder.DOCTYPE, toCreatePayload(connection, command));
         String orderId = ErpValues.trimToNull(created.path("name").asText(null));
         if (orderId == null) {
-            throw new BusinessException(BusinessErrorCode.INTERNAL_ERROR, "ERPNext 创建 Sales Order 未返回 name");
+            throw new ErpWriteOutcomeUnknownException(
+                    "ERPNext 创建 Sales Order 已成功但未返回 name");
         }
         return orderId;
     }
