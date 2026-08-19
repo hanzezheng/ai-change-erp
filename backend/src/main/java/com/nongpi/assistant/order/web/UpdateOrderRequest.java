@@ -11,7 +11,7 @@ import java.util.List;
 
 public record UpdateOrderRequest(
         @NotBlank String customerId,
-        LocalDate transactionDate,
+        @NotNull LocalDate transactionDate,
         @NotEmpty @Valid List<OrderItemRequest> items,
         @NotNull Instant expectedModifiedAt,
         String note

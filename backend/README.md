@@ -95,8 +95,8 @@ Master Key 来自 `APP_CREDENTIAL_ENCRYPTION_KEY`，不入库、不进 Git、不
 | `PUT`  | `/api/v1/orders/{orderId}`       | 更新同一张 Draft；已提交只读             |
 | `POST` | `/api/v1/orders/{orderId}/submit` | 提交同一张订单                         |
 | `GET`  | `/api/v1/orders/{orderId}/payment-summary` | 收款进度：confirmedPaid / remainingToCollect |
-| `GET`  | `/api/v1/payment-methods`        | ERPNext Mode of Payment                  |
-| `GET`  | `/api/v1/payments`               | 按 relatedOrderId 列出收款               |
+| `GET`  | `/api/v1/payment-methods`        | 当前 Company 已配置账户的 Mode of Payment |
+| `GET`  | `/api/v1/payments`               | 按 relatedOrderId 从 Payment Entry Reference 列出收款 |
 | `GET`  | `/api/v1/payments/{paymentId}`   | 收款详情                                 |
 | `POST` | `/api/v1/payments`               | 创建 Draft Payment Entry（需 Idempotency-Key） |
 | `POST` | `/api/v1/payments/{id}/confirm`  | 确认同一张收款                           |
@@ -148,6 +148,8 @@ ERPNext 中 `Item.name == Item.item_code`，不存在独立的 Variant 主键，
 | `updatedAt`         | `Sales Order.modified`                                           |
 | `paymentId`         | `Payment Entry.name`                                             |
 | `paymentMethodId`   | `Mode of Payment.name`                                           |
+| `amount`（收款）     | 该 Sales Order 对应 `Payment Entry Reference.allocated_amount`   |
+| `relatedOrderId`    | `Payment Entry Reference.reference_name`（Sales Order）          |
 | `paymentStatus`（收款单） | Payment Entry `docstatus`：0 待确认 / 1 已到账 / 2 已取消   |
 
 ## referencePrice 用途边界
@@ -185,7 +187,8 @@ ERPNext REST 无法把 `Bin` 与 `Item Reorder` 做联表分页过滤。当前�
 - `CustomerSummary.receivableAmount` / `recentOrderTime` —— 需要完整财务往来，不在本阶段展开
 - `aliases` —— 需要 SaaS Identity 模块
 - `lowStock` / `alertQty` —— ERPNext 未配置预警线时为空，表示「无法判断」，不返回任何库存百分比
-- 订单 `note` —— Phase 3 实测标准 `remarks` 不落库，因此本阶段不持久化
+- 订单 `note` —— 当前版本不支持。请求带非空 `note` 返回 `UNSUPPORTED_FIELD`，不得静默丢失。Phase 4 在后端真正支持前不要做可编辑备注框
+- `lastDealPrice` / `frequentItems` / recent Customer / 订单商品搜索仍使用最近 50 张已提交 Sales Order 窗口。这是 MVP 限制，不引入 Elasticsearch、本地订单索引或 Custom App
 
 `CustomerSelectorResult.recent`、`ProductSelectorResult.frequentItems` 与 `GET /pricing/last-deal` 已从已提交 Sales Order 历史读取；没有成交时为空，不用 `referencePrice` 伪造。
 
@@ -223,12 +226,16 @@ ERPNext REST 无法把 `Bin` 与 `Item Reorder` 做联表分页过滤。当前�
 - child row `name` 可作为 `orderItemId`
 - `frappe.client.submit` 可用；已提交文档拒绝普通 PUT
 - 过期 `modified` 返回 `TimestampMismatchError`，映射为 `ORDER_CONFLICT`
-- `get_payment_entry(Sales Order, …)` 能生成带 accounts/party/reference 的 Draft Payment Entry
+- `get_payment_entry(Sales Order, party_amount)` 生成标准 Payment Entry 后，必须把所选 Mode of Payment 在当前 Company 的 `default_account` 写入 `paid_to`；不覆盖 ERP 生成的 `paid_amount` / `received_amount`
+- 业务收款金额来自 Sales Order 对应 `Payment Entry Reference.allocated_amount`
 - Draft 收款不计 `advance_paid`；Submit 后累计；付清后订单 `status` 仍为 `To Deliver and Bill`，不是 Completed
+- Confirm 只允许 Order-related Customer Receive；两张满额 Draft 不能都确认成功
+- `GET /payments?relatedOrderId=` 从 `Payment Entry Reference` 查询，不扫描全站最近 50 条
 - `APPLE-80` 箱与斤价格分离，`conversion_factor` 由 ERPNext 回填
 - `delivery_date` 设为 `transaction_date` 可创建成功
-- 标准 `remarks` 创建后返回空，本阶段不持久化 note
-- Mode of Payment 必须在当前 Company 有默认账户，否则后续 API 返回 `PAYMENT_METHOD_NOT_CONFIGURED`
+- 非空 `note` 明确拒绝（`UNSUPPORTED_FIELD`）
+- `GET /payment-methods` 只返回当前 Company 已配置 `default_account` 的 Mode of Payment
+- ERPNext `ValidationError` 映射为 `ERP_VALIDATION_FAILED`，不是 `ERP_UNAVAILABLE`；`TimestampMismatchError` 仍为 `ORDER_CONFLICT`
 
 ## 技术决策记录
 

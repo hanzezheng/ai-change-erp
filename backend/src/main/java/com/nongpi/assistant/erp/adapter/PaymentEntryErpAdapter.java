@@ -11,9 +11,13 @@ import java.util.Optional;
 
 public interface PaymentEntryErpAdapter {
 
+    /**
+     * 当前 Company 下已配置 default_account、可用于 Customer Receive 的付款方式。
+     * 未配置账户的方式不会出现在结果中。
+     */
     List<PaymentMethod> listPaymentMethods(ErpConnection connection);
 
-    boolean hasAccountForCompany(ErpConnection connection, String paymentMethodId, String company);
+    Optional<ConfiguredPaymentMethod> findConfiguredMethod(ErpConnection connection, String paymentMethodId);
 
     Payment createDraft(ErpConnection connection, PaymentWriteCommand command);
 
@@ -22,6 +26,16 @@ public interface PaymentEntryErpAdapter {
     Optional<Payment> findById(ErpConnection connection, String paymentId);
 
     List<Payment> listByOrder(ErpConnection connection, String orderId);
+
+    record ConfiguredPaymentMethod(
+            String paymentMethodId,
+            String paymentMethodName,
+            String defaultAccount
+    ) {
+        public PaymentMethod toPublic() {
+            return new PaymentMethod(paymentMethodId, paymentMethodName);
+        }
+    }
 
     record PaymentWriteCommand(
             String customerId,

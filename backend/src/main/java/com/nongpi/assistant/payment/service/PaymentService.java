@@ -108,6 +108,7 @@ public class PaymentService {
     }
 
     private void validate(ErpConnection connection, CreatePaymentRequest request) {
+        rejectUnsupportedNote(request.note());
         if (request.amount() == null || request.amount().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID, "收款金额必须大于 0");
         }
@@ -126,16 +127,17 @@ public class PaymentService {
                     "收款金额不能超过待收金额",
                     Map.of("amount", request.amount(), "remainingToCollect", order.remainingToCollect()));
         }
-        boolean methodExists = paymentEntryErpAdapter.listPaymentMethods(connection).stream()
-                .anyMatch(method -> request.paymentMethodId().equals(method.paymentMethodId()));
+        boolean methodExists = paymentEntryErpAdapter.findConfiguredMethod(connection, request.paymentMethodId())
+                .isPresent();
         if (!methodExists) {
-            throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID, "付款方式不存在",
+            throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID, "付款方式不存在或当前公司未配置账户",
                     Map.of("paymentMethodId", request.paymentMethodId()));
         }
-        if (!paymentEntryErpAdapter.hasAccountForCompany(connection, request.paymentMethodId(), connection.defaultCompany())) {
-            throw new BusinessException(BusinessErrorCode.PAYMENT_METHOD_NOT_CONFIGURED,
-                    BusinessErrorCode.PAYMENT_METHOD_NOT_CONFIGURED.defaultMessage(),
-                    Map.of("paymentMethodId", request.paymentMethodId()));
+    }
+
+    private void rejectUnsupportedNote(String note) {
+        if (note != null && !note.isBlank()) {
+            throw new BusinessException(BusinessErrorCode.UNSUPPORTED_FIELD, "当前版本暂不支持订单/收款备注");
         }
     }
 

@@ -652,7 +652,10 @@ updatedAt
 `orderId` = ERPNext `Sales Order.name`。不要再返回 `erpSalesOrderId`。
 `updatedAt` = ERPNext `modified`。
 `remainingToCollect` 是经营收款进度，不是会计应收；不要再用 `outstandingAmount`。
-Phase 3 不返回 `note`（标准 `remarks` 实测不会落库）。
+Phase 3 不返回 `note`。若请求带非空 `note`，返回 `UNSUPPORTED_FIELD`，不得静默丢弃。
+`POST /orders` 的 `items[].orderItemId` 必须为空；正式行号由 ERPNext 生成。
+`PUT /orders/{orderId}` 必须显式带 `transactionDate`（完整更新，不得默认成今天）。
+非空 `orderItemId` 必须属于当前这张 Sales Order，同一请求中不得重复；`null` 表示新增行，未出现的旧行表示删除。
 
 ------
 
@@ -753,6 +756,10 @@ POST /api/v1/orders
 
 Header `Idempotency-Key` 必填。本接口永远只创建 Draft，不要传 `mode=draft|submit`。
 
+`transactionDate` 可省略；省略时按经营时区 `Asia/Shanghai` 取当天，不使用 JVM 默认时区。
+不要传 `note`。非空 `note` 返回 `UNSUPPORTED_FIELD`（当前版本暂不支持订单/收款备注）。
+不要传 `orderItemId`。客户端传入非空 `orderItemId` 返回 `INVALID_REQUEST`。
+
 ------
 
 # 21. 提交订单
@@ -799,7 +806,16 @@ items[]
 
 ERPNext Draft 已经存在之后，「保存修改」更新同一张 Sales Order。
 
-普通 `PUT /api/v1/orders/{orderId}` 仅允许 `docstatus=0`。必须带 `expectedModifiedAt`（等于上次返回的 `updatedAt`）。冲突返回 `ORDER_CONFLICT`。已提交订单拒绝普通 PUT，返回 `ORDER_STATUS_INVALID`。
+普通 `PUT /api/v1/orders/{orderId}` 仅允许 `docstatus=0`。必须带 `expectedModifiedAt`（等于上次返回的 `updatedAt`）和 `transactionDate`。冲突返回 `ORDER_CONFLICT`。已提交订单拒绝普通 PUT，返回 `ORDER_STATUS_INVALID`。
+
+`items[]` 是完整替换：
+
+- 非空 `orderItemId` 必须是当前这张 Sales Order 已有的 child row。引用其他订单或不存在的 name 返回 `INVALID_REQUEST`
+- 同一请求中 `orderItemId` 不得重复
+- `orderItemId = null` 表示新增行
+- 当前 Draft 中未出现在本次 `items[]` 的旧行表示删除
+
+不要传 `note`。非空 `note` 返回 `UNSUPPORTED_FIELD`。
 
 禁止更新订单时把其重新创建为新 Order。
 
@@ -1009,6 +1025,11 @@ transactionTime
 
 `paymentId` = ERPNext `Payment Entry.name`。不要再返回 `erpPaymentEntryId`。
 
+Phase 3 V1 的 `amount` 表示这笔收款针对关联 Sales Order 的 `Payment Entry Reference.allocated_amount`，不是银行侧 `paid_amount`。
+同币种时两者通常一致；多币种不得把 bank-side amount 当成订单收款金额。
+
+不要传 `note`。非空 `note` 返回 `UNSUPPORTED_FIELD`。
+
 ------
 
 # 31. Payment Draft
@@ -1044,7 +1065,21 @@ paymentMethodId
 paymentMethodLabel
 ```
 
-`paymentMethodId` 等于 ERPNext `Mode of Payment.name`。该方式在当前 Company 没有默认账户时，创建收款返回 `PAYMENT_METHOD_NOT_CONFIGURED`。
+`paymentMethodId` 等于 ERPNext `Mode of Payment.name`。
+
+`GET /api/v1/payment-methods` 只返回当前 Tenant `defaultCompany` 下真正配置了 `Mode of Payment Account.default_account`、可用于 Customer Receive 的方式。
+未配置账户的方式不会出现在列表中，避免客户端选出必然失败的选项。
+公开 DTO 只返回 `paymentMethodId` / `paymentMethodName`，不暴露会计科目。
+
+创建 Customer Receive 时：
+
+1. 按所选方式解析当前 Company 的 `default_account`
+2. 调用 ERPNext `get_payment_entry`，`party_amount` = 本次订单分配金额
+3. 设置 `mode_of_payment` 与 `paid_to = default_account`
+4. 不覆盖 ERPNext 生成的 `paid_amount` / `received_amount` / 汇率
+5. 由 ERPNext 保存并校验
+
+Receive 场景下，所选 Mode 的 `default_account` 必须成为 `Payment Entry.paid_to`。不要猜科目。
 
 ------
 
@@ -1105,7 +1140,20 @@ ERPNext Payment Adapter
 POST /api/v1/payments/{paymentId}/confirm
 ```
 
-确认后必须重新查询/计算：
+确认前必须重新读取完整 ERPNext Payment Entry，并重新查询当前 Sales Order 的 `confirmedPaid` / `remainingToCollect`。
+
+Phase 3 V1 只允许确认：
+
+- `payment_type = Receive`
+- `party_type = Customer`
+- `company = Tenant defaultCompany`
+- 恰好关联一张已提交、未取消的 Sales Order
+- `party` 等于该 Sales Order 的 customer
+- 对该 Sales Order 的 `allocated_amount > 0` 且不超过当前 `remainingToCollect`
+
+Supplier Pay、Internal Transfer、无 Sales Order、关联 Sales Invoice、其他 Company 或其他 unsupported shape：返回 `PAYMENT_NOT_SUPPORTED`。
+
+两张 Draft 都合法时，先确认的一张成功；第二张若会超收必须失败。Spring Boot 先按当前剩余金额拦截，ERPNext Submit 的 reference/outstanding 校验是并发最终防线。
 
 - confirmedPaid
 - remainingToCollect
@@ -1814,6 +1862,7 @@ ITEM_AMBIGUOUS
 INVALID_UOM
 INVALID_QUANTITY
 INVALID_RATE
+INVALID_REQUEST
 ORDER_NOT_FOUND
 ORDER_INVALID
 ORDER_STATUS_INVALID
@@ -1822,6 +1871,8 @@ PAYMENT_NOT_FOUND
 PAYMENT_INVALID
 PAYMENT_STATUS_INVALID
 PAYMENT_METHOD_NOT_CONFIGURED
+PAYMENT_NOT_SUPPORTED
+UNSUPPORTED_FIELD
 ERP_WRITE_CONFIGURATION_INCOMPLETE
 IDEMPOTENCY_CONFLICT
 IDEMPOTENCY_IN_PROGRESS
@@ -1839,6 +1890,7 @@ PERMISSION_DENIED
 TENANT_NOT_FOUND
 ERP_CONNECTION_NOT_CONFIGURED
 ERP_UNAVAILABLE
+ERP_VALIDATION_FAILED
 AI_UNAVAILABLE
 ASR_UNAVAILABLE
 ```
@@ -1874,6 +1926,10 @@ Success。
 ```text
 ERP_UNAVAILABLE
 ```
+
+ERPNext `ValidationError` / 业务校验失败不得映射为 `ERP_UNAVAILABLE`。应返回 `ERP_VALIDATION_FAILED`（或非常明确的 Payment 场景下的 `PAYMENT_INVALID`）。`TimestampMismatchError` 仍映射为 `ORDER_CONFLICT`。
+
+返回给客户端的 `message` 只使用安全文案，不带回 ERP traceback。服务端日志可记录 traceId 与原始 ERP 错误。
 
 Flutter 可以保留当前尚未提交的本地编辑状态并支持重试。
 
@@ -1957,10 +2013,12 @@ App Payment：
 
 具体：
 
-- Account
-- Mode of Payment
-- Party
-- Reference Document
+- Mode of Payment 必须绑定当前 Company 的 `default_account`
+- Customer Receive 的 `paid_to` = 该 default_account
+- 业务 `amount` = 对应 Sales Order 的 `Payment Entry Reference.allocated_amount`
+- `relatedOrderId` 同样来自正式 reference
+- 列表按 `Payment Entry Reference` 查询，不要全站扫描最近 50 条 Payment Entry
+- Account / 汇率由 ERPNext 生成，Spring Boot 不重写 `paid_amount` / `received_amount`
 
 由 Adapter / Business Service 处理。
 
@@ -2176,6 +2234,7 @@ GET    /payments
 POST   /payments
 POST   /payments/{id}/confirm
 GET    /orders/{id}/payment-summary
+GET    /payment-methods
 
 POST   /ai/actions
 ```

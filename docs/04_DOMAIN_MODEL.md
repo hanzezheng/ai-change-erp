@@ -303,9 +303,15 @@ Customer
 
 `confirmedPaid` 优先取 `Sales Order.advance_paid`。经营待收金额字段名为 `remainingToCollect`，不是会计科目上的 `outstanding`。Draft Payment Entry 不计。付清只改 `paymentStatus=PAID`，不把 `orderStatus` 改为 COMPLETED。
 
-付款方式来自 ERPNext Mode of Payment。当前 Company 未配置默认账户时返回 `PAYMENT_METHOD_NOT_CONFIGURED`，不猜测会计科目。
+付款方式来自 ERPNext Mode of Payment。`GET /payment-methods` 只返回当前 `defaultCompany` 已配置 `default_account` 的方式。创建 Customer Receive 时必须把该账户写入 `Payment Entry.paid_to`，不猜测会计科目。
 
-Phase 3 真实 ERPNext v16 Probe：标准字段 `remarks` 创建后不会落库，因此本阶段不持久化订单 `note`。`delivery_date` 若必填，默认等于 `transaction_date`，不表示配送流程。
+业务收款金额取自该 Sales Order 对应 `Payment Entry Reference.allocated_amount`。Phase 3 V1 只支持同币种订单收款；检测到付款账户币种与往来账户币种不一致时返回 `PAYMENT_NOT_SUPPORTED`。
+
+`POST /payments/{id}/confirm` 只允许确认「恰好关联一张已提交 Sales Order 的 Customer Receive」。Confirm 前重新校验当前剩余金额。两张满额 Draft 不能都确认成功；ERPNext Submit 是并发最终防线。
+
+`POST /orders` 的 `orderItemId` 必须为空。`PUT` 的非空 `orderItemId` 只能引用当前订单自己的 child row，且同一请求不得重复。`PUT.transactionDate` 必填。
+
+非空 `note` 返回 `UNSUPPORTED_FIELD`（当前版本暂不支持订单/收款备注），不得静默丢弃。`GET /payments?relatedOrderId=` 从 `Payment Entry Reference` 查询，不扫描全站最近 50 条 Payment Entry。
 
 ------
 

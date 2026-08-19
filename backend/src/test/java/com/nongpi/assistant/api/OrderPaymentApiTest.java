@@ -181,6 +181,7 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
                         .content("""
                                 {
                                   "customerId": "韩兆亮",
+                                  "transactionDate": "2026-08-19",
                                   "expectedModifiedAt": "%s",
                                   "items": [{"orderItemId": "%s", "itemCode": "APPLE-80", "qty": 10, "uom": "斤", "rate": 3.8}]
                                 }
@@ -204,6 +205,7 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
                         .content("""
                                 {
                                   "customerId": "韩兆亮",
+                                  "transactionDate": "2026-08-19",
                                   "expectedModifiedAt": "%s",
                                   "items": [{"itemCode": "APPLE-80", "qty": 21, "uom": "箱", "rate": 68}]
                                 }
@@ -215,6 +217,7 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
                         .content("""
                                 {
                                   "customerId": "韩兆亮",
+                                  "transactionDate": "2026-08-19",
                                   "expectedModifiedAt": "%s",
                                   "items": [{"itemCode": "APPLE-80", "qty": 22, "uom": "箱", "rate": 68}]
                                 }
@@ -253,6 +256,7 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
                         .content("""
                                 {
                                   "customerId": "韩兆亮",
+                                  "transactionDate": "2026-08-19",
                                   "expectedModifiedAt": "%s",
                                   "items": [{"itemCode": "APPLE-80", "qty": 20, "uom": "箱", "rate": 68}]
                                 }
@@ -298,6 +302,18 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].paymentMethodId").value("微信"))
                 .andExpect(jsonPath("$[?(@.paymentMethodId == 'WECHAT_TRANSFER')]").isEmpty());
+    }
+
+    @Test
+    @DisplayName("payment-methods 不返回当前公司未配置账户的方式")
+    void paymentMethodsOmitUnconfiguredMode() throws Exception {
+        mockMvc.perform(get("/api/v1/payment-methods").header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].paymentMethodId").value("微信"))
+                .andExpect(jsonPath("$[0].paymentMethodName").value("微信"))
+                .andExpect(jsonPath("$[?(@.paymentMethodId == '未配置')]").isEmpty())
+                .andExpect(jsonPath("$[0].defaultAccount").doesNotExist());
     }
 
     @Test
@@ -395,7 +411,7 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
                         .header("Idempotency-Key", "no-acct")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(paymentJson(orderId, 1000, "未配置")))
-                .andExpect(jsonPath("$.code").value("PAYMENT_METHOD_NOT_CONFIGURED"));
+                .andExpect(jsonPath("$.code").value("PAYMENT_INVALID"));
     }
 
     @Test
@@ -518,6 +534,287 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
     }
 
     @Test
+    @DisplayName("创建收款使用所选 Mode 的 default_account，不覆盖 ERP 生成金额")
+    void createPaymentAppliesModeAccountWithoutOverwritingAmounts() throws Exception {
+        String orderId = submitTwoItem("k-mop-acct");
+        JsonNode pay = read(mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "pay-mop")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(paymentJson(orderId, 1000, "微信")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amount").value(1000))
+                .andExpect(jsonPath("$.relatedOrderId").value(orderId))
+                .andExpect(jsonPath("$.paymentMethodId").value("微信"))
+                .andReturn());
+        var stored = ERP.paymentDoc(pay.path("paymentId").asText());
+        assertThat(stored.path("mode_of_payment").asText()).isEqualTo("微信");
+        assertThat(stored.path("paid_to").asText()).isEqualTo("WeChat - NPT");
+        assertThat(stored.path("paid_to").asText()).isNotEqualTo("Cash - NPT");
+        assertThat(stored.path("paid_amount").decimalValue()).isEqualByComparingTo("1000");
+        assertThat(stored.path("received_amount").decimalValue()).isEqualByComparingTo("1000");
+        assertThat(stored.path("source_exchange_rate").decimalValue()).isEqualByComparingTo("1");
+        assertThat(stored.path("target_exchange_rate").decimalValue()).isEqualByComparingTo("1");
+        assertThat(stored.path("difference_amount").decimalValue()).isEqualByComparingTo("0");
+        assertThat(stored.path("references").get(0).path("allocated_amount").decimalValue())
+                .isEqualByComparingTo("1000");
+        assertThat(stored.path("references").get(0).path("reference_name").asText()).isEqualTo(orderId);
+        assertThat(pay.path("amount").decimalValue())
+                .isEqualByComparingTo(stored.path("references").get(0).path("allocated_amount").decimalValue());
+    }
+
+    @Test
+    @DisplayName("confirm 正常 Order-related Customer Receive")
+    void confirmSupportedReceive() throws Exception {
+        String orderId = submitTwoItem("k-confirm-ok");
+        JsonNode pay = createPayment(orderId, 1000, "pay-ok");
+        mockMvc.perform(post("/api/v1/payments/" + pay.path("paymentId").asText() + "/confirm")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paymentStatus").value("CONFIRMED"))
+                .andExpect(jsonPath("$.relatedOrderId").value(orderId))
+                .andExpect(jsonPath("$.amount").value(1000));
+    }
+
+    @Test
+    @DisplayName("confirm 无 Sales Order reference 被拒绝")
+    void confirmWithoutSalesOrderRejected() throws Exception {
+        JsonNode pay = createPayment(submitTwoItem("k-confirm-noso"), 1000, "pay-noso");
+        ERP.mutatePayment(pay.path("paymentId").asText(), node -> node.putArray("references"));
+        confirmRejected(pay.path("paymentId").asText(), "PAYMENT_NOT_SUPPORTED");
+    }
+
+    @Test
+    @DisplayName("confirm Supplier Payment 被拒绝")
+    void confirmSupplierPayRejected() throws Exception {
+        JsonNode pay = createPayment(submitTwoItem("k-confirm-sup"), 1000, "pay-sup");
+        ERP.mutatePayment(pay.path("paymentId").asText(), node -> {
+            node.put("payment_type", "Pay");
+            node.put("party_type", "Supplier");
+            node.put("party", "某供应商");
+        });
+        confirmRejected(pay.path("paymentId").asText(), "PAYMENT_NOT_SUPPORTED");
+    }
+
+    @Test
+    @DisplayName("confirm Internal Transfer 被拒绝")
+    void confirmInternalTransferRejected() throws Exception {
+        JsonNode pay = createPayment(submitTwoItem("k-confirm-it"), 1000, "pay-it");
+        ERP.mutatePayment(pay.path("paymentId").asText(), node -> {
+            node.put("payment_type", "Internal Transfer");
+            node.put("party_type", "");
+            node.putArray("references");
+        });
+        confirmRejected(pay.path("paymentId").asText(), "PAYMENT_NOT_SUPPORTED");
+    }
+
+    @Test
+    @DisplayName("confirm 其他 Company 的 Payment Entry 被拒绝")
+    void confirmOtherCompanyRejected() throws Exception {
+        JsonNode pay = createPayment(submitTwoItem("k-confirm-co"), 1000, "pay-co");
+        ERP.mutatePayment(pay.path("paymentId").asText(), node -> node.put("company", "其他公司"));
+        confirmRejected(pay.path("paymentId").asText(), "PAYMENT_NOT_SUPPORTED");
+    }
+
+    @Test
+    @DisplayName("confirm 客户与订单不一致被拒绝")
+    void confirmCustomerMismatchRejected() throws Exception {
+        JsonNode pay = createPayment(submitTwoItem("k-confirm-party"), 1000, "pay-party");
+        ERP.mutatePayment(pay.path("paymentId").asText(), node -> node.put("party", "别人"));
+        confirmRejected(pay.path("paymentId").asText(), "PAYMENT_INVALID");
+    }
+
+    @Test
+    @DisplayName("两张过期 Draft 不能都超收同一订单")
+    void twoStaleDraftsCannotBothOverpay() throws Exception {
+        String orderId = submitTwoItem("k-stale-pay");
+        JsonNode first = createPayment(orderId, 2320, "stale-a");
+        JsonNode second = createPayment(orderId, 2320, "stale-b");
+        mockMvc.perform(post("/api/v1/payments/" + first.path("paymentId").asText() + "/confirm")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/payments/" + second.path("paymentId").asText() + "/confirm")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PAYMENT_INVALID"));
+        mockMvc.perform(get("/api/v1/orders/" + orderId).header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.confirmedPaid").value(2320))
+                .andExpect(jsonPath("$.remainingToCollect").value(0))
+                .andExpect(jsonPath("$.paymentStatus").value("PAID"));
+    }
+
+    @Test
+    @DisplayName("POST 带 orderItemId 被拒绝")
+    void postWithOrderItemIdRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-post-row")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "customerId": "韩兆亮",
+                                  "items": [{"orderItemId": "row-from-client", "itemCode": "APPLE-80", "qty": 20, "uom": "箱", "rate": 68}]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("PUT 使用其他订单的 orderItemId 被拒绝")
+    void putForeignOrderItemIdRejected() throws Exception {
+        JsonNode first = createDraft(orderJson("韩兆亮", apple(20, "箱", 68)), "k-row-a");
+        JsonNode second = createDraft(orderJson("韩兆亮", apple(10, "箱", 68)), "k-row-b");
+        String foreignRow = first.path("items").get(0).path("orderItemId").asText();
+        mockMvc.perform(put("/api/v1/orders/" + second.path("orderId").asText())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "customerId": "韩兆亮",
+                                  "transactionDate": "2026-08-19",
+                                  "expectedModifiedAt": "%s",
+                                  "items": [{"orderItemId": "%s", "itemCode": "APPLE-80", "qty": 12, "uom": "箱", "rate": 68}]
+                                }
+                                """.formatted(second.path("updatedAt").asText(), foreignRow)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("PUT 重复 orderItemId 被拒绝")
+    void putDuplicateOrderItemIdRejected() throws Exception {
+        JsonNode created = createDraft(twoItemJson(), "k-dup-row");
+        String row = created.path("items").get(0).path("orderItemId").asText();
+        mockMvc.perform(put("/api/v1/orders/" + created.path("orderId").asText())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "customerId": "韩兆亮",
+                                  "transactionDate": "2026-08-19",
+                                  "expectedModifiedAt": "%s",
+                                  "items": [
+                                    {"orderItemId": "%s", "itemCode": "APPLE-80", "qty": 20, "uom": "箱", "rate": 68},
+                                    {"orderItemId": "%s", "itemCode": "BANANA-FEN", "qty": 30, "uom": "件", "rate": 32}
+                                  ]
+                                }
+                                """.formatted(created.path("updatedAt").asText(), row, row)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("PUT 缺少 transactionDate 返回 400")
+    void putMissingTransactionDateRejected() throws Exception {
+        JsonNode created = createDraft(twoItemJson(), "k-put-date");
+        mockMvc.perform(put("/api/v1/orders/" + created.path("orderId").asText())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "customerId": "韩兆亮",
+                                  "expectedModifiedAt": "%s",
+                                  "items": [{"itemCode": "APPLE-80", "qty": 20, "uom": "箱", "rate": 68}]
+                                }
+                                """.formatted(created.path("updatedAt").asText())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("创建订单默认日期使用经营时区")
+    void createDefaultDateUsesBusinessZone() throws Exception {
+        JsonNode created = createDraft(
+                "{\"customerId\":\"韩兆亮\",\"items\":[" + apple(20, "箱", 68) + "]}",
+                "k-biz-date");
+        assertThat(created.path("transactionDate").asText())
+                .isEqualTo(com.nongpi.assistant.erp.mapper.ErpDates.today(java.time.Clock.systemUTC()).toString());
+    }
+
+    @Test
+    @DisplayName("创建订单非空 note 被拒绝")
+    void createOrderNoteRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-note-create")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "customerId": "韩兆亮",
+                                  "note": "备货备注",
+                                  "items": [{"itemCode": "APPLE-80", "qty": 20, "uom": "箱", "rate": 68}]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_FIELD"))
+                .andExpect(jsonPath("$.message").value("当前版本暂不支持订单/收款备注"));
+    }
+
+    @Test
+    @DisplayName("更新订单非空 note 被拒绝")
+    void updateOrderNoteRejected() throws Exception {
+        JsonNode created = createDraft(twoItemJson(), "k-note-upd");
+        mockMvc.perform(put("/api/v1/orders/" + created.path("orderId").asText())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "customerId": "韩兆亮",
+                                  "transactionDate": "2026-08-19",
+                                  "expectedModifiedAt": "%s",
+                                  "note": "不要丢",
+                                  "items": [{"itemCode": "APPLE-80", "qty": 20, "uom": "箱", "rate": 68}]
+                                }
+                                """.formatted(created.path("updatedAt").asText())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_FIELD"));
+    }
+
+    @Test
+    @DisplayName("创建收款非空 note 被拒绝")
+    void createPaymentNoteRejected() throws Exception {
+        String orderId = submitTwoItem("k-note-pay");
+        mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "pay-note")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "customerId": "韩兆亮",
+                                  "relatedOrderId": "%s",
+                                  "amount": 1000,
+                                  "paymentMethodId": "微信",
+                                  "note": "微信截图"
+                                }
+                                """.formatted(orderId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_FIELD"));
+    }
+
+    @Test
+    @DisplayName("订单收款即使不在全站最新 50 条也能查到，无关收款不出现")
+    void listPaymentsByReferenceNotGlobalWindow() throws Exception {
+        String orderId = submitTwoItem("k-pay-list");
+        JsonNode pay = createPayment(orderId, 1000, "pay-list-target");
+        String otherOrderId = submitTwoItem("k-pay-list-other");
+        JsonNode other = createPayment(otherOrderId, 500, "pay-list-other");
+        ERP.seedUnrelatedPayments(60);
+        JsonNode listed = read(mockMvc.perform(get("/api/v1/payments")
+                        .param("relatedOrderId", orderId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andReturn());
+        assertThat(listed.path("content")).hasSize(1);
+        assertThat(listed.path("content").get(0).path("paymentId").asText())
+                .isEqualTo(pay.path("paymentId").asText());
+        assertThat(listed.path("content").get(0).path("paymentId").asText())
+                .isNotEqualTo(other.path("paymentId").asText());
+        assertThat(listed.path("content").get(0).path("amount").decimalValue())
+                .isEqualByComparingTo("1000");
+    }
+
+    @Test
     @DisplayName("缺少 defaultCompany 时拒绝写入")
     void missingCompany() throws Exception {
         TenantEntity tenant = newTenant("无公司档口", TenantStatus.ACTIVE);
@@ -541,6 +838,23 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk());
         return created.path("orderId").asText();
+    }
+
+    private JsonNode createPayment(String orderId, int amount, String idempotencyKey) throws Exception {
+        return read(mockMvc.perform(post("/api/v1/payments")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(paymentJson(orderId, amount, "微信")))
+                .andExpect(status().isOk())
+                .andReturn());
+    }
+
+    private void confirmRejected(String paymentId, String code) throws Exception {
+        mockMvc.perform(post("/api/v1/payments/" + paymentId + "/confirm")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(code));
     }
 
     private JsonNode createDraft(String json, String idempotencyKey) throws Exception {

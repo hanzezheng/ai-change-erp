@@ -1,5 +1,6 @@
 package com.nongpi.assistant.erp.support;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nongpi.assistant.erp.connection.ErpConnection;
 import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * 可控的 ERPNext 假服务。
@@ -158,6 +160,18 @@ public final class FakeErpNext implements AutoCloseable {
 
     public void setDocstatus(String doctype, String name, int docstatus, String status) {
         writeEngine.setDocstatus(doctype, name, docstatus, status);
+    }
+
+    public ObjectNode paymentDoc(String name) {
+        return writeEngine.paymentDoc(name);
+    }
+
+    public void mutatePayment(String name, Consumer<ObjectNode> mutator) {
+        writeEngine.mutatePayment(name, mutator);
+    }
+
+    public void seedUnrelatedPayments(int count) {
+        writeEngine.seedUnrelatedPayments(count);
     }
 
     public String baseUrl() {

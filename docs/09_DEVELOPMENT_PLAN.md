@@ -49,7 +49,7 @@ Phase 1A 的临时 Token → Tenant Filter 已在本阶段替换为正式认证�
 
 Draft 边界见 `docs/04_DOMAIN_MODEL.md` 第 8 节与 `docs/06_API_DATA_DESIGN.md` 第 24 节。
 
-状态：已完成（见分支 `cursor/erpnext-order-payment-write-b267`）。未改 ERPNext、未建 Custom App。CI 只用 Fake + Testcontainers，真实 Write Probe 标记 `erp-smoke`，默认不跑。
+状态：Phase 3.1 完整性收口已完成（同一分支 `cursor/erpnext-order-payment-write-b267`）。未改 ERPNext、未建 Custom App。CI 只用 Fake + Testcontainers，真实 Write Probe 标记 `erp-smoke`，默认不跑。
 
 Phase 3 冻结：
 
@@ -58,8 +58,18 @@ Phase 3 冻结：
 - `POST /orders` 永远创建 Draft；Submit 只走独立接口
 - `remainingToCollect` 替代 `outstandingAmount`
 - 不伪造订单「待确认」
-- 付款方式来自 Mode of Payment
-- `note` 本阶段不持久化（标准 `remarks` 实测不落库）
+- 付款方式来自 Mode of Payment，且必须绑定当前 Company `default_account` → Receive 的 `paid_to`
+- 业务收款金额 = Sales Order reference `allocated_amount`
+- Confirm 只允许 Order-related Customer Receive，并重新校验剩余金额
+- 非空 `note` 明确拒绝，不得静默丢失
+- `PUT.transactionDate` 必填；创建默认日期使用 `Asia/Shanghai`
+- `orderItemId` 只能引用当前订单自己的 child row
+- Payment 列表从 `Payment Entry Reference` 查询
+
+MVP 限制（本阶段不优化、不引入 Elasticsearch / 本地索引 / Custom App）：
+
+- `lastDealPrice` / `frequentItems` / recent Customer 仍使用最近 50 张已提交 Sales Order 窗口
+- Order item 搜索仍最多 50 个 parent
 
 ### Phase 4：Flutter 无 AI 业务闭环
 

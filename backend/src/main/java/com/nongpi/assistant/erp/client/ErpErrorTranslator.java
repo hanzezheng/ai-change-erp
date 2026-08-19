@@ -43,17 +43,26 @@ public final class ErpErrorTranslator {
             return new BusinessException(BusinessErrorCode.ORDER_CONFLICT,
                     BusinessErrorCode.ORDER_CONFLICT.defaultMessage(), java.util.Map.of(), cause);
         }
-        // ERPNext 401 表示服务端配置的 API Key/Secret 无效，属于我们自己的配置问题，
-        // 不是调用方没有权限，因此不映射为 PERMISSION_DENIED。
         if (status == 403) {
             return new BusinessException(BusinessErrorCode.PERMISSION_DENIED,
                     "ERP 拒绝了该操作", java.util.Map.of(), cause);
+        }
+        if (isClientValidation(status, responseBody)) {
+            return new BusinessException(BusinessErrorCode.ERP_VALIDATION_FAILED,
+                    BusinessErrorCode.ERP_VALIDATION_FAILED.defaultMessage(), java.util.Map.of(), cause);
         }
         return erpUnavailable(cause);
     }
 
     private static boolean isTimestampMismatch(String body) {
         return body != null && body.contains("TimestampMismatchError");
+    }
+
+    private static boolean isClientValidation(int status, String body) {
+        if (status == 400 || status == 409 || status == 417 || status == 422) {
+            return true;
+        }
+        return body != null && (body.contains("ValidationError") || body.contains("frappe.exceptions"));
     }
 
     private static BusinessException erpUnavailable(Throwable cause) {

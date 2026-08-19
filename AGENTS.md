@@ -921,13 +921,16 @@ price
 
 `updatedAt` 等于 ERPNext `modified`，用于乐观锁。
 
-Phase 3 实测标准 `remarks` 创建后不会落库，因此本阶段不持久化 `note`。
+Phase 3 实测标准 `remarks` 创建后不会落库。当前版本若请求带非空 `note`，返回 `UNSUPPORTED_FIELD`，不得静默丢弃。Phase 4 Flutter 在后端真正支持之前，不要显示可编辑 note 输入框。
 
 ------
 
 # 37. OrderItem 正式身份
 
-`orderItemId` 等于 ERPNext `Sales Order Item.name`（创建时客户端不传，由 ERPNext 生成）。
+`orderItemId` 等于 ERPNext `Sales Order Item.name`。
+
+- `POST /orders`：所有 Item 的 `orderItemId` 必须为空，由 ERPNext 生成
+- `PUT /orders/{orderId}`：非空 `orderItemId` 必须属于当前这张 Sales Order；同一请求不得重复；`null` 表示新增行
 
 OrderItem 至少：
 
@@ -1213,7 +1216,11 @@ Payment 必须至少保存：
 - relatedOrderId
 - transactionTime
 
-付款方式来自 ERPNext Mode of Payment，不写死微信/现金。该方式在当前 Company 没有默认账户时返回 `PAYMENT_METHOD_NOT_CONFIGURED`，不猜科目。
+付款方式来自 ERPNext Mode of Payment，不写死微信/现金。`GET /payment-methods` 只返回当前 `defaultCompany` 已配置 `default_account` 的方式。创建 Customer Receive 时，该账户必须成为 `Payment Entry.paid_to`。不猜科目。
+
+业务 `amount` 取自对应 Sales Order 的 `Payment Entry Reference.allocated_amount`。不要假定 `paid_amount` 在所有情况下都等于订单分配金额。
+
+`POST /payments/{id}/confirm` 只允许确认恰好关联一张已提交 Sales Order 的 Customer Receive。Confirm 前重新校验当前剩余金额。ERPNext Submit 是并发付款最终防线。
 
 禁止只保存 Customer Name。
 
@@ -1270,6 +1277,8 @@ Payment：
 重新计算订单 Payment Status。
 
 禁止只修改 Payment 自己。
+
+Confirm 前重新读取完整 Payment Entry，并按当前 Sales Order 的 `remainingToCollect` 校验本次 `allocated_amount`。两张合法 Draft 不能都超收成功。ERPNext Submit 是并发最终防线。
 
 ------
 
@@ -1970,6 +1979,7 @@ Order 使用 Order ID。
 - INVALID_UOM
 - INVALID_QUANTITY
 - INVALID_RATE
+- INVALID_REQUEST
 - ORDER_NOT_FOUND
 - ORDER_INVALID
 - ORDER_STATUS_INVALID
@@ -1978,12 +1988,15 @@ Order 使用 Order ID。
 - PAYMENT_INVALID
 - PAYMENT_STATUS_INVALID
 - PAYMENT_METHOD_NOT_CONFIGURED
+- PAYMENT_NOT_SUPPORTED
+- UNSUPPORTED_FIELD
 - ERP_WRITE_CONFIGURATION_INCOMPLETE
 - IDEMPOTENCY_CONFLICT
 - IDEMPOTENCY_IN_PROGRESS
 - IDEMPOTENCY_OUTCOME_UNKNOWN
 - PERMISSION_DENIED
 - ERP_UNAVAILABLE
+- ERP_VALIDATION_FAILED
 - AI_UNAVAILABLE
 - ASR_UNAVAILABLE
 

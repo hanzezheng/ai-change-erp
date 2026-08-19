@@ -7,6 +7,8 @@ import java.math.BigDecimal;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ErpPaymentEntryReference(
+        @JsonProperty("name") String name,
+        @JsonProperty("parent") String parent,
         @JsonProperty("reference_doctype") String referenceDoctype,
         @JsonProperty("reference_name") String referenceName,
         @JsonProperty("allocated_amount") BigDecimal allocatedAmount,

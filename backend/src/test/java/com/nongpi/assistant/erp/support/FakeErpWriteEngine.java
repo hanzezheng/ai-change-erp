@@ -114,6 +114,10 @@ final class FakeErpWriteEngine {
                 stored.put("status", "To Deliver and Bill");
             }
             if (ErpPayment.equals(doctype)) {
+                MockResponse overpay = rejectIfOverpays(stored);
+                if (overpay != null) {
+                    return overpay;
+                }
                 applyAdvance(stored);
             }
             touch(stored);
@@ -136,6 +140,10 @@ final class FakeErpWriteEngine {
             pe.put("party_name", order.path("customer_name").asText());
             pe.put("paid_from", "Debtors - NPT");
             pe.put("paid_to", "Cash - NPT");
+            pe.put("paid_from_account_currency", "CNY");
+            pe.put("paid_to_account_currency", "CNY");
+            pe.put("source_exchange_rate", 1);
+            pe.put("target_exchange_rate", 1);
             pe.put("paid_amount", amount);
             pe.put("received_amount", amount);
             pe.put("difference_amount", 0);
@@ -144,8 +152,8 @@ final class FakeErpWriteEngine {
             ref.put("reference_doctype", ErpSalesOrder);
             ref.put("reference_name", orderId);
             ref.put("allocated_amount", amount);
-            ref.put("total_amount", amount);
-            ref.put("outstanding_amount", amount);
+            ref.put("total_amount", order.path("grand_total").decimalValue());
+            ref.put("outstanding_amount", remaining(order));
             return message(pe);
         }
         return json(404, "{\"exc_type\":\"DoesNotExistError\"}");
@@ -181,10 +189,11 @@ final class FakeErpWriteEngine {
             node.put("name", name);
             node.put("doctype", ErpPayment);
             node.put("docstatus", 0);
-            node.put("difference_amount", 0);
+            node.put("difference_amount", decimal(node.path("difference_amount"), BigDecimal.ZERO));
             if (!node.hasNonNull("party_name")) {
                 node.put("party_name", node.path("party").asText());
             }
+            annotateReferences(node, name);
             stampNew(node);
             payments.put(name, node);
             return data(node);
@@ -232,6 +241,7 @@ final class FakeErpWriteEngine {
             case ErpSalesOrder -> new ArrayList<>(salesOrders.values());
             case ErpSalesOrderItem -> flattenItems();
             case ErpPayment -> new ArrayList<>(payments.values());
+            case "Payment Entry Reference" -> flattenPaymentReferences();
             case "Mode of Payment" -> new ArrayList<>(paymentMethods);
             case "Mode of Payment Account" -> new ArrayList<>(paymentMethodAccounts);
             default -> null;
@@ -336,6 +346,108 @@ final class FakeErpWriteEngine {
         return null;
     }
 
+    ObjectNode paymentDoc(String name) {
+        ObjectNode stored = payments.get(name);
+        return stored == null ? null : stored.deepCopy();
+    }
+
+    void mutatePayment(String name, java.util.function.Consumer<ObjectNode> mutator) {
+        ObjectNode stored = payments.get(name);
+        if (stored == null) {
+            throw new IllegalArgumentException("没有收款 " + name);
+        }
+        mutator.accept(stored);
+        annotateReferences(stored, name);
+    }
+
+    void seedUnrelatedPayments(int count) {
+        for (int i = 0; i < count; i++) {
+            ObjectNode pe = MAPPER.createObjectNode();
+            String name = "ACC-PAY-UNREL-" + String.format("%05d", i + 1);
+            pe.put("name", name);
+            pe.put("doctype", ErpPayment);
+            pe.put("payment_type", "Receive");
+            pe.put("party_type", "Customer");
+            pe.put("party", "无关客户");
+            pe.put("party_name", "无关客户");
+            pe.put("company", "农批测试");
+            pe.put("mode_of_payment", "微信");
+            pe.put("paid_from", "Debtors - NPT");
+            pe.put("paid_to", "Cash - NPT");
+            pe.put("paid_amount", 1);
+            pe.put("received_amount", 1);
+            pe.put("difference_amount", 0);
+            pe.put("docstatus", 1);
+            ArrayNode refs = pe.putArray("references");
+            ObjectNode ref = refs.addObject();
+            ref.put("reference_doctype", ErpSalesOrder);
+            ref.put("reference_name", "SAL-ORD-UNRELATED");
+            ref.put("allocated_amount", 1);
+            annotateReferences(pe, name);
+            stampNew(pe);
+            payments.put(name, pe);
+        }
+    }
+
+    private MockResponse rejectIfOverpays(ObjectNode payment) {
+        JsonNode refs = payment.path("references");
+        if (!refs.isArray()) {
+            return null;
+        }
+        for (JsonNode ref : refs) {
+            if (!ErpSalesOrder.equals(ref.path("reference_doctype").asText())) {
+                continue;
+            }
+            ObjectNode order = salesOrders.get(ref.path("reference_name").asText());
+            if (order == null) {
+                continue;
+            }
+            BigDecimal allocated = decimal(ref.path("allocated_amount"), BigDecimal.ZERO);
+            if (allocated.compareTo(remaining(order)) > 0) {
+                return json(417, "{\"exc_type\":\"ValidationError\","
+                        + "\"exception\":\"frappe.exceptions.ValidationError: Allocated Amount cannot be greater than outstanding amount.\"}");
+            }
+        }
+        return null;
+    }
+
+    private BigDecimal remaining(ObjectNode order) {
+        return decimal(order.path("grand_total"), BigDecimal.ZERO)
+                .subtract(decimal(order.path("advance_paid"), BigDecimal.ZERO));
+    }
+
+    private void annotateReferences(ObjectNode payment, String parent) {
+        JsonNode refs = payment.path("references");
+        if (!refs.isArray()) {
+            return;
+        }
+        for (JsonNode ref : refs) {
+            if (!(ref instanceof ObjectNode row)) {
+                continue;
+            }
+            row.put("parent", parent);
+            row.put("parenttype", ErpPayment);
+            row.put("parentfield", "references");
+            if (!row.hasNonNull("name") || row.path("name").asText().isBlank()) {
+                row.put("name", "pref-" + childSeq.getAndIncrement());
+            }
+        }
+    }
+
+    private List<ObjectNode> flattenPaymentReferences() {
+        List<ObjectNode> rows = new ArrayList<>();
+        for (ObjectNode payment : payments.values()) {
+            JsonNode refs = payment.path("references");
+            if (!refs.isArray()) {
+                continue;
+            }
+            for (JsonNode ref : refs) {
+                rows.add((ObjectNode) ref);
+            }
+        }
+        return rows;
+    }
+
     private void seedPaymentMethods() {
         paymentMethods.add(method("微信", "Cash"));
         paymentMethods.add(method("未配置", "Bank"));
@@ -345,7 +457,7 @@ final class FakeErpWriteEngine {
         account.put("parenttype", "Mode of Payment");
         account.put("parentfield", "accounts");
         account.put("company", "农批测试");
-        account.put("default_account", "Cash - NPT");
+        account.put("default_account", "WeChat - NPT");
         paymentMethodAccounts.add(account);
     }
 

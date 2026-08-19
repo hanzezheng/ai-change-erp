@@ -40,6 +40,7 @@ class ErpWriteProbeSmokeTest {
     private ErpConnection connection;
     private String company;
     private String paymentMethod;
+    private String paymentAccount;
 
     @BeforeAll
     void connect() {
@@ -63,14 +64,19 @@ class ErpWriteProbeSmokeTest {
                 Duration.ofSeconds(30)
         );
         company = configuredCompany != null ? configuredCompany : firstCompany();
-        paymentMethod = firstUsablePaymentMethod();
-        System.out.println("WRITE_PROBE company=" + company + " paymentMethod=" + paymentMethod);
+        ConfiguredMode mode = firstConfiguredMode();
+        assumeTrue(mode != null, "当前 Company 没有配置 default_account 的 Mode of Payment，跳过 Write Probe");
+        paymentMethod = mode.name();
+        paymentAccount = mode.account();
+        System.out.println("WRITE_PROBE company=" + company
+                + " paymentMethod=" + paymentMethod
+                + " paymentAccount=" + paymentAccount);
     }
 
     @Test
     @DisplayName("两商品 Draft → 同单改删增 → Submit → 收款累计 → 并发冲突")
     void probesSalesOrderAndPaymentWritePath() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = com.nongpi.assistant.erp.mapper.ErpDates.today(java.time.Clock.systemUTC());
         Map<String, Object> create = salesOrderPayload(today, List.of(
                 item("APPLE-80", new BigDecimal("20"), "箱", new BigDecimal("68")),
                 item("BANANA-FEN", new BigDecimal("30"), "件", new BigDecimal("32"))
@@ -151,14 +157,23 @@ class ErpWriteProbeSmokeTest {
 
         Map<String, Object> paymentBody = clientToMap(paymentDraftMessage);
         paymentBody.put("doctype", "Payment Entry");
-        if (paymentMethod != null) {
-            paymentBody.put("mode_of_payment", paymentMethod);
-        }
-        paymentBody.put("paid_amount", 1000);
-        paymentBody.put("received_amount", 1000);
+        String originalPaidTo = paymentDraftMessage.path("paid_to").asText(null);
+        paymentBody.put("mode_of_payment", paymentMethod);
+        paymentBody.put("paid_to", paymentAccount);
+        paymentBody.remove("__islocal");
+        paymentBody.remove("__unsaved");
         JsonNode paymentDraft = client.createDoc(connection, "Payment Entry", paymentBody);
         String paymentId = paymentDraft.path("name").asText();
         assertThat(paymentDraft.path("docstatus").asInt()).isEqualTo(0);
+        assertThat(paymentDraft.path("mode_of_payment").asText()).isEqualTo(paymentMethod);
+        assertThat(paymentDraft.path("paid_to").asText()).isEqualTo(paymentAccount);
+        assertThat(paymentDraft.path("difference_amount").decimalValue()).isEqualByComparingTo("0");
+        assertThat(allocatedToOrder(paymentDraft, orderId)).isEqualByComparingTo("1000");
+        System.out.println("WRITE_PROBE modeAccount originalPaidTo=" + originalPaidTo
+                + " appliedPaidTo=" + paymentDraft.path("paid_to").asText()
+                + " paid_amount=" + paymentDraft.path("paid_amount")
+                + " received_amount=" + paymentDraft.path("received_amount")
+                + " allocated=" + allocatedToOrder(paymentDraft, orderId));
         JsonNode soWhileDraft = client.getDocNode(connection, "Sales Order", orderId).orElseThrow();
         System.out.println("WRITE_PROBE paymentDraft=" + paymentId
                 + " so.advance_paid while draft=" + soWhileDraft.path("advance_paid"));
@@ -188,11 +203,10 @@ class ErpWriteProbeSmokeTest {
                 Map.of("dt", "Sales Order", "dn", orderId, "party_amount", remaining));
         Map<String, Object> secondBody = clientToMap(secondMessage);
         secondBody.put("doctype", "Payment Entry");
-        if (paymentMethod != null) {
-            secondBody.put("mode_of_payment", paymentMethod);
-        }
-        secondBody.put("paid_amount", remaining);
-        secondBody.put("received_amount", remaining);
+        secondBody.put("mode_of_payment", paymentMethod);
+        secondBody.put("paid_to", paymentAccount);
+        secondBody.remove("__islocal");
+        secondBody.remove("__unsaved");
         JsonNode secondDraft = client.createDoc(connection, "Payment Entry", secondBody);
         if (!secondDraft.has("doctype") || secondDraft.path("doctype").asText().isBlank()) {
             ((com.fasterxml.jackson.databind.node.ObjectNode) secondDraft).put("doctype", "Payment Entry");
@@ -215,6 +229,80 @@ class ErpWriteProbeSmokeTest {
         assertThat(jinDraft.path("items").get(0).path("uom").asText()).isEqualTo("斤");
         assertThat(jinDraft.path("items").get(0).path("rate").decimalValue())
                 .isNotEqualByComparingTo("68");
+    }
+
+    @Test
+    @DisplayName("两张 Draft 各收满额，第二张 Submit 必须失败")
+    void probesStaleDraftPaymentsCannotBothOverpay() {
+        LocalDate today = com.nongpi.assistant.erp.mapper.ErpDates.today(java.time.Clock.systemUTC());
+        JsonNode draft = client.createDoc(connection, "Sales Order", salesOrderPayload(today, List.of(
+                item("APPLE-80", new BigDecimal("20"), "箱", new BigDecimal("68")),
+                item("BANANA-FEN", new BigDecimal("30"), "件", new BigDecimal("32"))
+        ), null));
+        String orderId = draft.path("name").asText();
+        JsonNode current = client.getDocNode(connection, "Sales Order", orderId).orElseThrow();
+        if (!current.hasNonNull("doctype") || current.path("doctype").asText().isBlank()) {
+            ((com.fasterxml.jackson.databind.node.ObjectNode) current).put("doctype", "Sales Order");
+        }
+        JsonNode submitted = client.submitDoc(connection, current);
+        BigDecimal total = submitted.path("grand_total").decimalValue();
+
+        JsonNode first = createReceiveDraft(orderId, total);
+        JsonNode second = createReceiveDraft(orderId, total);
+        if (!first.hasNonNull("doctype") || first.path("doctype").asText().isBlank()) {
+            ((com.fasterxml.jackson.databind.node.ObjectNode) first).put("doctype", "Payment Entry");
+        }
+        if (!second.hasNonNull("doctype") || second.path("doctype").asText().isBlank()) {
+            ((com.fasterxml.jackson.databind.node.ObjectNode) second).put("doctype", "Payment Entry");
+        }
+        JsonNode confirmedFirst = client.submitDoc(connection, first);
+        assertThat(confirmedFirst.path("docstatus").asInt()).isEqualTo(1);
+
+        String secondError = null;
+        try {
+            client.submitDoc(connection, second);
+        } catch (RuntimeException ex) {
+            secondError = ex.getMessage();
+        }
+        JsonNode so = client.getDocNode(connection, "Sales Order", orderId).orElseThrow();
+        System.out.println("WRITE_PROBE staleDraft first=" + first.path("name").asText()
+                + " second=" + second.path("name").asText()
+                + " secondError=" + secondError
+                + " advance_paid=" + so.path("advance_paid")
+                + " grand_total=" + so.path("grand_total"));
+        assertThat(secondError).as("第二张满额 Draft Submit 必须失败").isNotNull();
+        assertThat(so.path("advance_paid").decimalValue()).isLessThanOrEqualTo(so.path("grand_total").decimalValue());
+        assertThat(so.path("advance_paid").decimalValue()).isEqualByComparingTo(total);
+    }
+
+    @Test
+    @DisplayName("通过 Payment Entry Reference 能找到当前订单收款")
+    void probesListPaymentsViaReference() {
+        LocalDate today = com.nongpi.assistant.erp.mapper.ErpDates.today(java.time.Clock.systemUTC());
+        JsonNode draft = client.createDoc(connection, "Sales Order", salesOrderPayload(today, List.of(
+                item("APPLE-80", new BigDecimal("5"), "箱", new BigDecimal("68"))
+        ), null));
+        String orderId = draft.path("name").asText();
+        JsonNode current = client.getDocNode(connection, "Sales Order", orderId).orElseThrow();
+        if (!current.hasNonNull("doctype") || current.path("doctype").asText().isBlank()) {
+            ((com.fasterxml.jackson.databind.node.ObjectNode) current).put("doctype", "Sales Order");
+        }
+        client.submitDoc(connection, current);
+        JsonNode payment = createReceiveDraft(orderId, new BigDecimal("100"));
+        String paymentId = payment.path("name").asText();
+
+        List<JsonNode> refs = client.list(connection, "Payment Entry Reference",
+                ErpQuery.create()
+                        .fields("name", "parent", "reference_doctype", "reference_name", "allocated_amount")
+                        .filter(ErpFilter.eq("parenttype", "Payment Entry"))
+                        .filter(ErpFilter.eq("reference_doctype", "Sales Order"))
+                        .filter(ErpFilter.eq("reference_name", orderId))
+                        .parent("Payment Entry")
+                        .unlimited(),
+                JsonNode.class);
+        System.out.println("WRITE_PROBE paymentRefs orderId=" + orderId + " paymentId=" + paymentId + " refs=" + refs);
+        assertThat(refs).isNotEmpty();
+        assertThat(refs.stream().map(row -> row.path("parent").asText()).toList()).contains(paymentId);
     }
 
     private Map<String, Object> salesOrderPayload(LocalDate date, List<Map<String, Object>> items, String remarks) {
@@ -253,13 +341,63 @@ class ErpWriteProbeSmokeTest {
         return companies.get(0).path("name").asText();
     }
 
-    private String firstUsablePaymentMethod() {
-        JsonNode methods = listRaw("Mode of Payment", ErpQuery.create().fields("name", "enabled", "type").limit(0, 20));
+    private ConfiguredMode firstConfiguredMode() {
+        JsonNode methods = listRaw("Mode of Payment",
+                ErpQuery.create().fields("name", "enabled", "type").filter(ErpFilter.eq("enabled", 1)).limit(0, 50));
+        JsonNode accounts = listRaw("Mode of Payment Account",
+                ErpQuery.create()
+                        .fields("parent", "company", "default_account")
+                        .filter(ErpFilter.eq("parenttype", "Mode of Payment"))
+                        .filter(ErpFilter.eq("company", company))
+                        .parent("Mode of Payment")
+                        .unlimited());
         System.out.println("WRITE_PROBE modes=" + methods);
-        if (!methods.isArray() || methods.isEmpty()) {
+        System.out.println("WRITE_PROBE modeAccounts=" + accounts);
+        if (!methods.isArray() || !accounts.isArray()) {
             return null;
         }
-        return methods.get(0).path("name").asText(null);
+        Map<String, String> accountByMethod = new LinkedHashMap<>();
+        accounts.forEach(row -> {
+            String parent = row.path("parent").asText(null);
+            String account = row.path("default_account").asText(null);
+            if (parent != null && !parent.isBlank() && account != null && !account.isBlank()) {
+                accountByMethod.putIfAbsent(parent, account);
+            }
+        });
+        for (JsonNode method : methods) {
+            String name = method.path("name").asText(null);
+            String account = name == null ? null : accountByMethod.get(name);
+            if (name != null && account != null) {
+                return new ConfiguredMode(name, account);
+            }
+        }
+        return null;
+    }
+
+    private JsonNode createReceiveDraft(String orderId, BigDecimal partyAmount) {
+        JsonNode generated = client.callMethod(connection,
+                "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
+                Map.of("dt", "Sales Order", "dn", orderId, "party_amount", partyAmount));
+        Map<String, Object> body = clientToMap(generated);
+        body.put("doctype", "Payment Entry");
+        body.put("mode_of_payment", paymentMethod);
+        body.put("paid_to", paymentAccount);
+        body.remove("__islocal");
+        body.remove("__unsaved");
+        return client.createDoc(connection, "Payment Entry", body);
+    }
+
+    private BigDecimal allocatedToOrder(JsonNode payment, String orderId) {
+        for (JsonNode ref : payment.path("references")) {
+            if ("Sales Order".equals(ref.path("reference_doctype").asText())
+                    && orderId.equals(ref.path("reference_name").asText())) {
+                return ref.path("allocated_amount").decimalValue();
+            }
+        }
+        throw new AssertionError("Payment Entry 没有关联 Sales Order " + orderId);
+    }
+
+    private record ConfiguredMode(String name, String account) {
     }
 
     private JsonNode listRaw(String doctype, ErpQuery query) {

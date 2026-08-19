@@ -58,4 +58,12 @@ public final class ErpDates {
     public static String toErpDate(LocalDate date) {
         return date == null ? null : DATE.format(date);
     }
+
+    /**
+     * 经营日。即使 JVM / Docker 运行在 UTC，也按 Asia/Shanghai 取当天。
+     */
+    public static LocalDate today(java.time.Clock clock) {
+        java.time.Clock source = clock == null ? java.time.Clock.systemUTC() : clock;
+        return LocalDate.now(source.withZone(BUSINESS_ZONE));
+    }
 }

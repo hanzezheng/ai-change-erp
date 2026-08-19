@@ -40,6 +40,9 @@ public enum BusinessErrorCode {
     TENANT_NOT_FOUND(HttpStatus.FORBIDDEN, "租户不存在或未启用"),
     ERP_CONNECTION_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "当前企业尚未配置 ERP 连接"),
     ERP_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "ERP 系统暂时不可用"),
+    ERP_VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "ERP 拒绝了该业务数据"),
+    UNSUPPORTED_FIELD(HttpStatus.BAD_REQUEST, "当前版本暂不支持该字段"),
+    PAYMENT_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "当前版本不支持该收款类型"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "服务内部错误");
 
     private final HttpStatus httpStatus;

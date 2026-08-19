@@ -10,7 +10,10 @@ import com.nongpi.assistant.customer.service.CustomerService;
 import com.nongpi.assistant.erp.adapter.SalesOrderErpAdapter;
 import com.nongpi.assistant.erp.connection.ErpConnection;
 import com.nongpi.assistant.erp.connection.ErpConnectionProvider;
+import com.nongpi.assistant.erp.mapper.ErpDates;
+import com.nongpi.assistant.erp.mapper.ErpValues;
 import com.nongpi.assistant.order.domain.Order;
+import com.nongpi.assistant.order.domain.OrderItem;
 import com.nongpi.assistant.order.domain.OrderPaymentSummary;
 import com.nongpi.assistant.order.domain.OrderStatus;
 import com.nongpi.assistant.order.domain.OrderSummary;
@@ -27,10 +30,14 @@ import com.nongpi.assistant.tenant.TenantContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class OrderService {
@@ -41,26 +48,32 @@ public class OrderService {
     private final ProductService productService;
     private final IdempotencyService idempotencyService;
     private final AuditService auditService;
+    private final Clock clock;
 
     public OrderService(SalesOrderErpAdapter salesOrderErpAdapter,
                         ErpConnectionProvider erpConnectionProvider,
                         CustomerService customerService,
                         ProductService productService,
                         IdempotencyService idempotencyService,
-                        AuditService auditService) {
+                        AuditService auditService,
+                        Clock clock) {
         this.salesOrderErpAdapter = salesOrderErpAdapter;
         this.erpConnectionProvider = erpConnectionProvider;
         this.customerService = customerService;
         this.productService = productService;
         this.idempotencyService = idempotencyService;
         this.auditService = auditService;
+        this.clock = clock;
     }
 
     public Order createDraft(CreateOrderRequest request, String idempotencyKey) {
         UserPrincipal actor = SecurityUtils.requireUser();
         ErpConnection connection = connection();
+        rejectUnsupportedNote(request.note());
+        requireEmptyOrderItemIds(request.items());
         validateWrite(request.customerId(), request.items());
-        LocalDate transactionDate = request.transactionDate() == null ? LocalDate.now() : request.transactionDate();
+        LocalDate transactionDate = request.transactionDate() == null
+                ? ErpDates.today(clock) : request.transactionDate();
         SalesOrderErpAdapter.SalesOrderWriteCommand command = toCommand(request.customerId(), transactionDate, request.items());
 
         String hash = idempotencyService.hash(request);
@@ -79,10 +92,11 @@ public class OrderService {
 
     public Order updateDraft(String orderId, UpdateOrderRequest request) {
         UserPrincipal actor = SecurityUtils.requireUser();
+        rejectUnsupportedNote(request.note());
         validateWrite(request.customerId(), request.items());
-        LocalDate transactionDate = request.transactionDate() == null ? LocalDate.now() : request.transactionDate();
+        validatePutOrderItemIds(orderId, request.items());
         Order updated = salesOrderErpAdapter.updateDraft(connection(), orderId, request.expectedModifiedAt(),
-                toCommand(request.customerId(), transactionDate, request.items()));
+                toCommand(request.customerId(), request.transactionDate(), request.items()));
         auditService.success(actor.tenantId(), actor.userId(), AuditActions.ORDER_DRAFT_UPDATE,
                 "SalesOrder", updated.orderId(), summary(updated));
         return updated;
@@ -119,6 +133,46 @@ public class OrderService {
                 order.remainingToCollect(),
                 order.paymentStatus()
         );
+    }
+
+    private void rejectUnsupportedNote(String note) {
+        if (note != null && !note.isBlank()) {
+            throw new BusinessException(BusinessErrorCode.UNSUPPORTED_FIELD, "当前版本暂不支持订单/收款备注");
+        }
+    }
+
+    private void requireEmptyOrderItemIds(List<OrderItemRequest> items) {
+        for (OrderItemRequest item : items) {
+            if (ErpValues.trimToNull(item.orderItemId()) != null) {
+                throw new BusinessException(BusinessErrorCode.INVALID_REQUEST,
+                        "新建订单不能指定 orderItemId", Map.of("orderItemId", item.orderItemId()));
+            }
+        }
+    }
+
+    private void validatePutOrderItemIds(String orderId, List<OrderItemRequest> items) {
+        Order current = getById(orderId);
+        Set<String> existing = current.items() == null ? Set.of()
+                : current.items().stream()
+                .map(OrderItem::orderItemId)
+                .filter(id -> ErpValues.trimToNull(id) != null)
+                .collect(Collectors.toSet());
+        Set<String> seen = new HashSet<>();
+        for (OrderItemRequest item : items) {
+            String orderItemId = ErpValues.trimToNull(item.orderItemId());
+            if (orderItemId == null) {
+                continue;
+            }
+            if (!seen.add(orderItemId)) {
+                throw new BusinessException(BusinessErrorCode.INVALID_REQUEST,
+                        "同一请求中 orderItemId 不能重复", Map.of("orderItemId", orderItemId));
+            }
+            if (!existing.contains(orderItemId)) {
+                throw new BusinessException(BusinessErrorCode.INVALID_REQUEST,
+                        "orderItemId 不属于当前订单",
+                        Map.of("orderItemId", orderItemId, "orderId", orderId));
+            }
+        }
     }
 
     private void validateWrite(String customerId, List<OrderItemRequest> items) {
