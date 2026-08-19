@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: nongpi-backend
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: 8080
+  error:
+    include-message: never
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  level:
+    com.nongpi.assistant: INFO
+
+app:
+  # 租户与 ERP 连接暂由服务端配置提供。
+  # Phase 2 引入 PostgreSQL 后，由数据库实现替换 ConfiguredTenantResolver /
+  # ConfiguredErpConnectionProvider，接口不变。
+  #
+  # ERPNext 多租户部署方式尚未冻结（AGENTS.md #20）：
+  # 每个租户各自配置独立 erp.base-url 即为 per-tenant 部署；
+  # 多个租户配置同一 base-url 即为 shared 部署。此处不做架构决策。
+  tenants: []
+#    - tenant-id: T001
+#      tenant-name: 徐州水果档口
+#      access-tokens:
+#        - ${TENANT_T001_TOKEN}
+#      erp:
+#        base-url: https://erp.example.com
+#        api-key: ${TENANT_T001_ERP_API_KEY}
+#        api-secret: ${TENANT_T001_ERP_API_SECRET}
+#        selling-price-list: Standard Selling
+#        default-warehouse: 仓库 - XZ
+#        connect-timeout: 3s
+#        read-timeout: 10s

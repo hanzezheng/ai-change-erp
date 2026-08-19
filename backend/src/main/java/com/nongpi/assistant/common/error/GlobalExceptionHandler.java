@@ -1,0 +1,46 @@
+package com.nongpi.assistant.common.error;
+
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.Map;
+import java.util.UUID;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ApiErrorResponse> handleBusiness(BusinessException ex, HttpServletRequest request) {
+        String traceId = newTraceId();
+        if (ex.code().httpStatus().is5xxServerError()) {
+            log.error("[{}] {} {} 业务失败: {}", traceId, request.getMethod(), request.getRequestURI(), ex.code(), ex);
+        } else {
+            log.warn("[{}] {} {} 业务拒绝: {} - {}", traceId, request.getMethod(), request.getRequestURI(),
+                    ex.code(), ex.getMessage());
+        }
+        return ResponseEntity.status(ex.code().httpStatus())
+                .body(ApiErrorResponse.of(ex.code(), ex.getMessage(), traceId, ex.details()));
+    }
+
+    /**
+     * 兜底分支。任何未被显式映射的异常都不能把内部细节（含 ERPNext 报文）返回给客户端。
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiErrorResponse> handleUnexpected(Exception ex, HttpServletRequest request) {
+        String traceId = newTraceId();
+        log.error("[{}] {} {} 未预期异常", traceId, request.getMethod(), request.getRequestURI(), ex);
+        BusinessErrorCode code = BusinessErrorCode.INTERNAL_ERROR;
+        return ResponseEntity.status(code.httpStatus())
+                .body(ApiErrorResponse.of(code, code.defaultMessage(), traceId, Map.of()));
+    }
+
+    private String newTraceId() {
+        return UUID.randomUUID().toString().replace("-", "");
+    }
+}
