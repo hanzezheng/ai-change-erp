@@ -54,7 +54,8 @@ public class ErpRestClient {
      * 由调用方 Adapter 决定翻译成 CUSTOMER_NOT_FOUND 还是 ITEM_NOT_FOUND。
      */
     public <T> Optional<T> getDoc(ErpConnection connection, String doctype, String name, Class<T> type) {
-        URI uri = URI.create(connection.baseUrl() + RESOURCE_PATH + encode(doctype) + "/" + encode(name));
+        URI uri = URI.create(connection.baseUrl() + RESOURCE_PATH
+                + encodePathSegment(doctype) + "/" + encodePathSegment(name));
         String body;
         try {
             body = clientFor(connection)
@@ -141,12 +142,14 @@ public class ErpRestClient {
             params.add(Map.entry("parent", query.getParent()));
         }
 
-        StringBuilder uri = new StringBuilder(connection.baseUrl()).append(RESOURCE_PATH).append(encode(doctype));
+        StringBuilder uri = new StringBuilder(connection.baseUrl())
+                .append(RESOURCE_PATH)
+                .append(encodePathSegment(doctype));
         for (int i = 0; i < params.size(); i++) {
             uri.append(i == 0 ? '?' : '&')
-                    .append(encode(params.get(i).getKey()))
+                    .append(encodeQueryValue(params.get(i).getKey()))
                     .append('=')
-                    .append(encode(params.get(i).getValue()));
+                    .append(encodeQueryValue(params.get(i).getValue()));
         }
         return URI.create(uri.toString());
     }
@@ -163,7 +166,26 @@ public class ErpRestClient {
         }
     }
 
-    private static String encode(String value) {
+    /**
+     * 编码 URL 路径片段。
+     *
+     * <p>路径中的空格必须是 {@code %20}：{@code +} 在路径里是字面加号，不代表空格。
+     * ERPNext 很多 DocType 名字带空格（{@code UOM Conversion Detail}、{@code Item Price}
+     * 等），用 {@code +} 会让 Frappe 把 DocType 名当成 {@code UOM+Conversion+Detail}
+     * 并返回 404。
+     */
+    static String encodePathSegment(String value) {
+        return encodeForm(value).replace("+", "%20");
+    }
+
+    /**
+     * 编码查询参数。查询串采用 form 编码，空格用 {@code +} 是合法的。
+     */
+    static String encodeQueryValue(String value) {
+        return encodeForm(value);
+    }
+
+    private static String encodeForm(String value) {
         try {
             return URLEncoder.encode(value, StandardCharsets.UTF_8.name());
         } catch (UnsupportedEncodingException ex) {
