@@ -65,6 +65,14 @@ public class FrappePaymentEntryErpAdapter implements PaymentEntryErpAdapter {
 
     @Override
     public Payment createDraft(ErpConnection connection, PaymentWriteCommand command) {
+        String paymentId = createDraftResource(connection, command);
+        return findById(connection, paymentId).orElseThrow(() -> new BusinessException(
+                BusinessErrorCode.PAYMENT_NOT_FOUND, BusinessErrorCode.PAYMENT_NOT_FOUND.defaultMessage(),
+                Map.of("paymentId", paymentId)));
+    }
+
+    @Override
+    public String createDraftResource(ErpConnection connection, PaymentWriteCommand command) {
         requireCompany(connection);
         ConfiguredPaymentMethod method = findConfiguredMethod(connection, command.paymentMethodId())
                 .orElseThrow(() -> new BusinessException(BusinessErrorCode.PAYMENT_METHOD_NOT_CONFIGURED,
@@ -74,15 +82,14 @@ public class FrappePaymentEntryErpAdapter implements PaymentEntryErpAdapter {
         JsonNode generated = erpRestClient.callMethod(connection, GET_PAYMENT_ENTRY, Map.of(
                 "dt", ErpSalesOrder.DOCTYPE,
                 "dn", command.relatedOrderId(),
-                "party_amount", command.amount()
+                "party_amount", command.amount(),
+                "bank_account", method.defaultAccount()
         ));
-        requireSameCurrencyReceive(generated);
+        requireCreatableReceive(connection, generated, method, command);
 
         Map<String, Object> payload = toMap(generated);
         payload.put("doctype", ErpPaymentEntry.DOCTYPE);
         payload.put("mode_of_payment", method.paymentMethodId());
-        payload.put("paid_to", method.defaultAccount());
-        payload.put("party", command.customerId());
         if (command.referenceNo() != null) {
             payload.put("reference_no", command.referenceNo());
         }
@@ -93,18 +100,11 @@ public class FrappePaymentEntryErpAdapter implements PaymentEntryErpAdapter {
         payload.remove("__unsaved");
 
         JsonNode created = erpRestClient.createDoc(connection, ErpPaymentEntry.DOCTYPE, payload);
-        requireSameCurrencyReceive(created);
-        if (!method.defaultAccount().equals(created.path("paid_to").asText(null))) {
-            throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID,
-                    "付款方式账户未能应用到收款单",
-                    Map.of("expectedPaidTo", method.defaultAccount(),
-                            "actualPaidTo", created.path("paid_to").asText("")));
+        String paymentId = ErpValues.trimToNull(created.path("name").asText(null));
+        if (paymentId == null) {
+            throw new BusinessException(BusinessErrorCode.INTERNAL_ERROR, "ERPNext 创建 Payment Entry 未返回 name");
         }
-        if (created.path("difference_amount").decimalValue().compareTo(BigDecimal.ZERO) != 0) {
-            throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID,
-                    "切换收款账户后金额不平衡，当前版本不支持该账户组合");
-        }
-        return mapPayment(created);
+        return paymentId;
     }
 
     @Override
@@ -135,7 +135,10 @@ public class FrappePaymentEntryErpAdapter implements PaymentEntryErpAdapter {
     @Override
     public Optional<Payment> findById(ErpConnection connection, String paymentId) {
         return erpRestClient.getDocNode(connection, ErpPaymentEntry.DOCTYPE, paymentId)
-                .map(this::mapPayment);
+                .map(node -> {
+                    requireSupportedShape(connection, node);
+                    return mapPayment(node);
+                });
     }
 
     @Override
@@ -157,6 +160,7 @@ public class FrappePaymentEntryErpAdapter implements PaymentEntryErpAdapter {
         List<Payment> payments = new ArrayList<>();
         for (String paymentId : paymentIds) {
             erpRestClient.getDocNode(connection, ErpPaymentEntry.DOCTYPE, paymentId)
+                    .filter(node -> isSupportedShape(connection, node))
                     .map(this::mapPayment)
                     .filter(payment -> orderId.equals(payment.relatedOrderId()))
                     .ifPresent(payments::add);
@@ -205,30 +209,76 @@ public class FrappePaymentEntryErpAdapter implements PaymentEntryErpAdapter {
         return configured;
     }
 
-    private void requireSupportedReceive(ErpConnection connection, JsonNode payment) {
-        String paymentType = payment.path("payment_type").asText("");
-        String partyType = payment.path("party_type").asText("");
-        String company = payment.path("company").asText("");
-        if (!"Receive".equals(paymentType) || !"Customer".equals(partyType)) {
-            throw unsupported("只支持客户收款", payment);
+    private void requireCreatableReceive(ErpConnection connection, JsonNode generated,
+                                         ConfiguredPaymentMethod method, PaymentWriteCommand command) {
+        requireSupportedShape(connection, generated);
+        if (!method.defaultAccount().equals(generated.path("paid_to").asText(null))) {
+            throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID,
+                    "付款方式账户未能应用到收款单",
+                    Map.of("expectedPaidTo", method.defaultAccount(),
+                            "actualPaidTo", generated.path("paid_to").asText("")));
         }
-        if (!Objects.equals(connection.defaultCompany(), company)) {
-            throw unsupported("收款单不属于当前企业", payment);
+        if (generated.path("difference_amount").decimalValue().compareTo(BigDecimal.ZERO) != 0) {
+            throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID,
+                    "收款金额不平衡，当前版本不支持该账户组合");
         }
-        List<JsonNode> salesOrders = salesOrderReferences(payment);
-        if (salesOrders.size() != 1) {
-            throw unsupported("当前版本只支持恰好关联一张销售订单的收款", payment);
+        String fromCurrency = generated.path("paid_from_account_currency").asText(null);
+        String toCurrency = generated.path("paid_to_account_currency").asText(null);
+        if (fromCurrency != null && toCurrency != null && !fromCurrency.equals(toCurrency)) {
+            throw new BusinessException(BusinessErrorCode.PAYMENT_NOT_SUPPORTED,
+                    "当前版本只支持同币种订单收款");
+        }
+        List<JsonNode> salesOrders = salesOrderReferences(generated);
+        JsonNode ref = salesOrders.get(0);
+        if (!command.relatedOrderId().equals(ref.path("reference_name").asText(""))) {
+            throw unsupported("收款必须恰好关联当前销售订单", generated);
+        }
+        if (!command.customerId().equals(generated.path("party").asText(""))) {
+            throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID, "收款客户必须与订单客户一致",
+                    Map.of("customerId", generated.path("party").asText(""),
+                            "orderCustomerId", command.customerId()));
+        }
+        BigDecimal allocated = ref.path("allocated_amount").decimalValue();
+        if (allocated.compareTo(command.amount()) != 0) {
+            throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID,
+                    "收款分配金额必须等于本次收款金额",
+                    Map.of("allocatedAmount", allocated, "amount", command.amount()));
+        }
+    }
+
+    private void requireSupportedShape(ErpConnection connection, JsonNode payment) {
+        if (!isSupportedShape(connection, payment)) {
+            throw unsupported("当前版本只支持关联一张销售订单的客户收款", payment);
+        }
+        BigDecimal allocated = salesOrderReferences(payment).get(0).path("allocated_amount").decimalValue();
+        if (allocated.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID, "收款分配金额必须大于 0");
+        }
+    }
+
+    private boolean isSupportedShape(ErpConnection connection, JsonNode payment) {
+        if (!"Receive".equals(payment.path("payment_type").asText())
+                || !"Customer".equals(payment.path("party_type").asText())) {
+            return false;
+        }
+        if (!Objects.equals(connection.defaultCompany(), payment.path("company").asText(""))) {
+            return false;
+        }
+        if (salesOrderReferences(payment).size() != 1) {
+            return false;
         }
         for (JsonNode ref : payment.path("references")) {
             String doctype = ref.path("reference_doctype").asText("");
             if (!doctype.isBlank() && !ErpSalesOrder.DOCTYPE.equals(doctype)) {
-                throw unsupported("当前版本不支持关联 " + doctype + " 的收款", payment);
+                return false;
             }
         }
-        BigDecimal allocated = salesOrders.get(0).path("allocated_amount").decimalValue();
-        if (allocated.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID, "收款分配金额必须大于 0");
-        }
+        return true;
+    }
+
+    private void requireSupportedReceive(ErpConnection connection, JsonNode payment) {
+        requireSupportedShape(connection, payment);
+        List<JsonNode> salesOrders = salesOrderReferences(payment);
         String orderId = salesOrders.get(0).path("reference_name").asText("");
         JsonNode order = erpRestClient.getDocNode(connection, ErpSalesOrder.DOCTYPE, orderId)
                 .orElseThrow(() -> new BusinessException(BusinessErrorCode.ORDER_NOT_FOUND,
@@ -261,20 +311,6 @@ public class FrappePaymentEntryErpAdapter implements PaymentEntryErpAdapter {
             throw new BusinessException(BusinessErrorCode.PAYMENT_INVALID,
                     "收款金额不能超过当前待收金额",
                     Map.of("allocatedAmount", allocated, "remainingToCollect", remaining));
-        }
-    }
-
-    private void requireSameCurrencyReceive(JsonNode generated) {
-        if (!"Receive".equals(generated.path("payment_type").asText())
-                || !"Customer".equals(generated.path("party_type").asText())) {
-            throw new BusinessException(BusinessErrorCode.PAYMENT_NOT_SUPPORTED,
-                    "当前版本只支持客户收款");
-        }
-        String fromCurrency = generated.path("paid_from_account_currency").asText(null);
-        String toCurrency = generated.path("paid_to_account_currency").asText(null);
-        if (fromCurrency != null && toCurrency != null && !fromCurrency.equals(toCurrency)) {
-            throw new BusinessException(BusinessErrorCode.PAYMENT_NOT_SUPPORTED,
-                    "当前版本只支持同币种订单收款");
         }
     }
 

@@ -69,22 +69,27 @@ public class OrderService {
     public Order createDraft(CreateOrderRequest request, String idempotencyKey) {
         UserPrincipal actor = SecurityUtils.requireUser();
         ErpConnection connection = connection();
-        rejectUnsupportedNote(request.note());
-        requireEmptyOrderItemIds(request.items());
-        validateWrite(request.customerId(), request.items());
-        LocalDate transactionDate = request.transactionDate() == null
-                ? ErpDates.today(clock) : request.transactionDate();
-        SalesOrderErpAdapter.SalesOrderWriteCommand command = toCommand(request.customerId(), transactionDate, request.items());
-
         String hash = idempotencyService.hash(request);
         IdempotencyRecordEntity record = idempotencyService.begin(
                 actor.tenantId(), IdempotencyService.CREATE_ORDER, idempotencyKey, hash);
         if (record.getStatus() == IdempotencyStatus.SUCCEEDED) {
             return getById(record.getResourceId());
         }
+        try {
+            rejectUnsupportedNote(request.note());
+            requireEmptyOrderItemIds(request.items());
+            validateWrite(request.customerId(), request.items());
+        } catch (RuntimeException ex) {
+            idempotencyService.abandon(record.getId());
+            throw ex;
+        }
+        LocalDate transactionDate = request.transactionDate() == null
+                ? ErpDates.today(clock) : request.transactionDate();
+        SalesOrderErpAdapter.SalesOrderWriteCommand command =
+                toCommand(request.customerId(), transactionDate, request.items());
         Order created = idempotencyService.executeWrite(record,
-                () -> salesOrderErpAdapter.createDraft(connection, command),
-                Order::orderId);
+                () -> salesOrderErpAdapter.createDraftResource(connection, command),
+                this::getById);
         auditService.success(actor.tenantId(), actor.userId(), AuditActions.ORDER_DRAFT_CREATE,
                 "SalesOrder", created.orderId(), summary(created));
         return created;

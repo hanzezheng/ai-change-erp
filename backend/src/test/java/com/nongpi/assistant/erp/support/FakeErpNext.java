@@ -1,5 +1,6 @@
 package com.nongpi.assistant.erp.support;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nongpi.assistant.erp.connection.ErpConnection;
 import okhttp3.mockwebserver.Dispatcher;
@@ -60,6 +61,7 @@ public final class FakeErpNext implements AutoCloseable {
     private final List<RecordedRequest> requests = new ArrayList<>();
     private final FakeErpWriteEngine writeEngine = new FakeErpWriteEngine();
     private MockResponse fallback;
+    private final Map<String, Integer> failNextLists = new LinkedHashMap<>();
 
     public FakeErpNext() {
         server.setDispatcher(new Dispatcher() {
@@ -67,6 +69,13 @@ public final class FakeErpNext implements AutoCloseable {
             public MockResponse dispatch(RecordedRequest request) {
                 requests.add(request);
                 String path = decodedPath(request);
+                if ("GET".equals(request.getMethod())) {
+                    Optional<String> listDoctype = listDoctypeOf(path);
+                    if (listDoctype.isPresent() && failNextLists.containsKey(listDoctype.get())) {
+                        int status = failNextLists.remove(listDoctype.get());
+                        return json(status, "{\"exc_type\":\"DoesNotExistError\"}");
+                    }
+                }
                 MockResponse configured = docResponses.get(path);
                 if (configured == null && "GET".equals(request.getMethod())) {
                     configured = doctypeOf(path).map(listResponses::get).orElse(null);
@@ -102,6 +111,7 @@ public final class FakeErpNext implements AutoCloseable {
         docResponses.clear();
         requests.clear();
         fallback = null;
+        failNextLists.clear();
         writeEngine.reset();
     }
 
@@ -156,6 +166,22 @@ public final class FakeErpNext implements AutoCloseable {
 
     public void hangNextWrite() {
         writeEngine.hangNextWrite();
+    }
+
+    public void failNextList(String doctype, int status) {
+        failNextLists.put(doctype, status);
+    }
+
+    public int salesOrderCount() {
+        return writeEngine.salesOrderCount();
+    }
+
+    public int paymentCount() {
+        return writeEngine.paymentCount();
+    }
+
+    public JsonNode lastGetPaymentEntryArgs() {
+        return writeEngine.lastGetPaymentEntryArgs();
     }
 
     public void setDocstatus(String doctype, String name, int docstatus, String status) {
@@ -227,6 +253,17 @@ public final class FakeErpNext implements AutoCloseable {
         // 先把字面 '+' 保护起来，再做标准解码，避免 URLDecoder 把它变成空格。
         String guarded = value.replace("+", "%2B");
         return URLDecoder.decode(guarded, StandardCharsets.UTF_8);
+    }
+
+    private static Optional<String> listDoctypeOf(String decodedPath) {
+        if (!decodedPath.startsWith(RESOURCE_PREFIX)) {
+            return Optional.empty();
+        }
+        String remainder = decodedPath.substring(RESOURCE_PREFIX.length());
+        if (remainder.isEmpty() || remainder.contains("/")) {
+            return Optional.empty();
+        }
+        return Optional.of(remainder);
     }
 
     private static Optional<String> doctypeOf(String decodedPath) {

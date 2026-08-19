@@ -470,6 +470,97 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
     }
 
     @Test
+    @DisplayName("Create Order 成功后商品停用，相同 key 仍 replay 原 orderId")
+    void replayCreateOrderIgnoresLaterItemChange() throws Exception {
+        JsonNode first = createDraft(twoItemJson(), "k-replay-item");
+        ERP.onDoc("Item", "APPLE-80", """
+                {"data": {"name": "APPLE-80", "item_code": "APPLE-80", "item_name": "苹果80果",
+                  "stock_uom": "箱", "sales_uom": "箱", "variant_of": "APPLE",
+                  "has_variants": 0, "disabled": 1, "is_sales_item": 1}}
+                """);
+        JsonNode replay = createDraft(twoItemJson(), "k-replay-item");
+        assertThat(replay.path("orderId").asText()).isEqualTo(first.path("orderId").asText());
+        assertThat(ERP.salesOrderCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Create Payment 成功后剩余金额变化，相同 key 仍 replay 原 paymentId")
+    void replayCreatePaymentIgnoresLaterRemaining() throws Exception {
+        String orderId = submitTwoItem("k-replay-pay-order");
+        JsonNode first = createPayment(orderId, 2320, "k-replay-pay");
+        mockMvc.perform(post("/api/v1/payments/" + first.path("paymentId").asText() + "/confirm")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/orders/" + orderId).header("Authorization", bearer(token)))
+                .andExpect(jsonPath("$.remainingToCollect").value(0));
+        JsonNode replay = createPayment(orderId, 2320, "k-replay-pay");
+        assertThat(replay.path("paymentId").asText()).isEqualTo(first.path("paymentId").asText());
+        assertThat(ERP.paymentCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("ERP create 成功但 enrichment 失败时幂等仍 SUCCEEDED，重试不新建")
+    void enrichmentFailureKeepsSucceededIdempotency() throws Exception {
+        ERP.failNextList("Item Variant Attribute", 500);
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-enrich-fail")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(twoItemJson()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("ERP_UNAVAILABLE"));
+        assertThat(ERP.salesOrderCount()).isEqualTo(1);
+        var records = idempotencyRecordRepository.findAll();
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).getStatus()).isEqualTo(
+                com.nongpi.assistant.saas.idempotency.IdempotencyStatus.SUCCEEDED);
+        String orderId = records.get(0).getResourceId();
+        JsonNode replay = createDraft(twoItemJson(), "k-enrich-fail");
+        assertThat(replay.path("orderId").asText()).isEqualTo(orderId);
+        assertThat(ERP.salesOrderCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("新请求校验失败不留下 PENDING 幂等记录")
+    void validationFailureDoesNotLeavePendingIdempotency() throws Exception {
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", "k-val-fail")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(orderJson("韩兆亮", apple(0, "箱", 68))))
+                .andExpect(jsonPath("$.code").value("INVALID_QUANTITY"));
+        assertThat(idempotencyRecordRepository.findAll()).isEmpty();
+        assertThat(ERP.salesOrderCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("GET /payments 缺少 relatedOrderId 返回 400")
+    void listPaymentsRequiresRelatedOrderId() throws Exception {
+        mockMvc.perform(get("/api/v1/payments").header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/v1/payments").param("relatedOrderId", " ")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("GET /payments/{id} 拒绝 unsupported Payment shape")
+    void paymentDetailRejectsUnsupportedShape() throws Exception {
+        JsonNode pay = createPayment(submitTwoItem("k-detail-shape"), 1000, "pay-shape");
+        ERP.mutatePayment(pay.path("paymentId").asText(), node -> {
+            node.put("payment_type", "Pay");
+            node.put("party_type", "Supplier");
+            node.put("party", "某供应商");
+        });
+        mockMvc.perform(get("/api/v1/payments/" + pay.path("paymentId").asText())
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PAYMENT_NOT_SUPPORTED"));
+    }
+
+    @Test
     @DisplayName("lastDealPrice 只用已提交且未取消订单，并按 customer+item+UOM")
     void lastDealPriceHistory() throws Exception {
         JsonNode draft = createDraft(twoItemJson(), "k-hist-draft");
@@ -561,6 +652,8 @@ class OrderPaymentApiTest extends AbstractSaasIntegrationTest {
         assertThat(stored.path("references").get(0).path("reference_name").asText()).isEqualTo(orderId);
         assertThat(pay.path("amount").decimalValue())
                 .isEqualByComparingTo(stored.path("references").get(0).path("allocated_amount").decimalValue());
+        assertThat(ERP.lastGetPaymentEntryArgs().path("bank_account").asText()).isEqualTo("WeChat - NPT");
+        assertThat(ERP.lastGetPaymentEntryArgs().path("party_amount").decimalValue()).isEqualByComparingTo("1000");
     }
 
     @Test

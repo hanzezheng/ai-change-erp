@@ -148,18 +148,24 @@ class ErpWriteProbeSmokeTest {
         BigDecimal orderTotal = afterSubmit.path("grand_total").decimalValue();
         JsonNode paymentDraftMessage = client.callMethod(connection,
                 "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
-                Map.of("dt", "Sales Order", "dn", orderId, "party_amount", 1000));
-        System.out.println("WRITE_PROBE get_payment_entry keys=" + fieldNames(paymentDraftMessage)
+                Map.of("dt", "Sales Order", "dn", orderId, "party_amount", 1000,
+                        "bank_account", paymentAccount));
+        System.out.println("WRITE_PROBE get_payment_entry bank_account=" + paymentAccount
+                + " keys=" + fieldNames(paymentDraftMessage)
                 + " paid_from=" + paymentDraftMessage.path("paid_from").asText(null)
                 + " paid_to=" + paymentDraftMessage.path("paid_to").asText(null)
+                + " paid_to_account_currency=" + paymentDraftMessage.path("paid_to_account_currency").asText(null)
+                + " difference_amount=" + paymentDraftMessage.path("difference_amount")
                 + " party=" + paymentDraftMessage.path("party").asText(null)
                 + " references=" + paymentDraftMessage.path("references"));
+        assertThat(paymentDraftMessage.path("paid_to").asText()).isEqualTo(paymentAccount);
+        assertThat(paymentDraftMessage.path("paid_to_account_currency").asText()).isNotBlank();
+        assertThat(paymentDraftMessage.path("difference_amount").decimalValue()).isEqualByComparingTo("0");
+        assertThat(allocatedToOrder(paymentDraftMessage, orderId)).isEqualByComparingTo("1000");
 
         Map<String, Object> paymentBody = clientToMap(paymentDraftMessage);
         paymentBody.put("doctype", "Payment Entry");
-        String originalPaidTo = paymentDraftMessage.path("paid_to").asText(null);
         paymentBody.put("mode_of_payment", paymentMethod);
-        paymentBody.put("paid_to", paymentAccount);
         paymentBody.remove("__islocal");
         paymentBody.remove("__unsaved");
         JsonNode paymentDraft = client.createDoc(connection, "Payment Entry", paymentBody);
@@ -169,11 +175,12 @@ class ErpWriteProbeSmokeTest {
         assertThat(paymentDraft.path("paid_to").asText()).isEqualTo(paymentAccount);
         assertThat(paymentDraft.path("difference_amount").decimalValue()).isEqualByComparingTo("0");
         assertThat(allocatedToOrder(paymentDraft, orderId)).isEqualByComparingTo("1000");
-        System.out.println("WRITE_PROBE modeAccount originalPaidTo=" + originalPaidTo
-                + " appliedPaidTo=" + paymentDraft.path("paid_to").asText()
+        System.out.println("WRITE_PROBE paymentDraft paid_to=" + paymentDraft.path("paid_to").asText()
                 + " paid_amount=" + paymentDraft.path("paid_amount")
                 + " received_amount=" + paymentDraft.path("received_amount")
-                + " allocated=" + allocatedToOrder(paymentDraft, orderId));
+                + " paid_to_account_currency=" + paymentDraft.path("paid_to_account_currency").asText(null)
+                + " source_exchange_rate=" + paymentDraft.path("source_exchange_rate")
+                + " target_exchange_rate=" + paymentDraft.path("target_exchange_rate"));
         JsonNode soWhileDraft = client.getDocNode(connection, "Sales Order", orderId).orElseThrow();
         System.out.println("WRITE_PROBE paymentDraft=" + paymentId
                 + " so.advance_paid while draft=" + soWhileDraft.path("advance_paid"));
@@ -200,11 +207,13 @@ class ErpWriteProbeSmokeTest {
         BigDecimal remaining = orderTotal.subtract(new BigDecimal("1000"));
         JsonNode secondMessage = client.callMethod(connection,
                 "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
-                Map.of("dt", "Sales Order", "dn", orderId, "party_amount", remaining));
+                Map.of("dt", "Sales Order", "dn", orderId, "party_amount", remaining,
+                        "bank_account", paymentAccount));
+        assertThat(secondMessage.path("paid_to").asText()).isEqualTo(paymentAccount);
+        assertThat(secondMessage.path("difference_amount").decimalValue()).isEqualByComparingTo("0");
         Map<String, Object> secondBody = clientToMap(secondMessage);
         secondBody.put("doctype", "Payment Entry");
         secondBody.put("mode_of_payment", paymentMethod);
-        secondBody.put("paid_to", paymentAccount);
         secondBody.remove("__islocal");
         secondBody.remove("__unsaved");
         JsonNode secondDraft = client.createDoc(connection, "Payment Entry", secondBody);
@@ -377,11 +386,12 @@ class ErpWriteProbeSmokeTest {
     private JsonNode createReceiveDraft(String orderId, BigDecimal partyAmount) {
         JsonNode generated = client.callMethod(connection,
                 "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
-                Map.of("dt", "Sales Order", "dn", orderId, "party_amount", partyAmount));
+                Map.of("dt", "Sales Order", "dn", orderId, "party_amount", partyAmount,
+                        "bank_account", paymentAccount));
+        assertThat(generated.path("paid_to").asText()).isEqualTo(paymentAccount);
         Map<String, Object> body = clientToMap(generated);
         body.put("doctype", "Payment Entry");
         body.put("mode_of_payment", paymentMethod);
-        body.put("paid_to", paymentAccount);
         body.remove("__islocal");
         body.remove("__unsaved");
         return client.createDoc(connection, "Payment Entry", body);

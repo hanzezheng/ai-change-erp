@@ -303,7 +303,7 @@ Customer
 
 `confirmedPaid` 优先取 `Sales Order.advance_paid`。经营待收金额字段名为 `remainingToCollect`，不是会计科目上的 `outstanding`。Draft Payment Entry 不计。付清只改 `paymentStatus=PAID`，不把 `orderStatus` 改为 COMPLETED。
 
-付款方式来自 ERPNext Mode of Payment。`GET /payment-methods` 只返回当前 `defaultCompany` 已配置 `default_account` 的方式。创建 Customer Receive 时必须把该账户写入 `Payment Entry.paid_to`，不猜测会计科目。
+付款方式来自 ERPNext Mode of Payment。`GET /payment-methods` 只返回当前 `defaultCompany` 已配置 `default_account` 的方式。创建 Customer Receive 时，把该账户作为 `get_payment_entry.bank_account` 传入，由 ERPNext 自己生成 `paid_to` / 币种 / 金额 / 汇率；Spring Boot 不覆盖这些会计字段，也不再先用默认账户生成再改 `paid_to`。
 
 业务收款金额取自该 Sales Order 对应 `Payment Entry Reference.allocated_amount`。Phase 3 V1 只支持同币种订单收款；检测到付款账户币种与往来账户币种不一致时返回 `PAYMENT_NOT_SUPPORTED`。
 
@@ -311,7 +311,11 @@ Customer
 
 `POST /orders` 的 `orderItemId` 必须为空。`PUT` 的非空 `orderItemId` 只能引用当前订单自己的 child row，且同一请求不得重复。`PUT.transactionDate` 必填。
 
-非空 `note` 返回 `UNSUPPORTED_FIELD`（当前版本暂不支持订单/收款备注），不得静默丢弃。`GET /payments?relatedOrderId=` 从 `Payment Entry Reference` 查询，不扫描全站最近 50 条 Payment Entry。
+非空 `note` 返回 `UNSUPPORTED_FIELD`（当前版本暂不支持订单/收款备注），不得静默丢弃。
+
+`GET /api/v1/payments` 的 `relatedOrderId` 必填；缺失或 blank 返回 `INVALID_REQUEST`。Phase 3 V1 不提供全局收款流水。列表从 `Payment Entry Reference` 查询，不扫描全站最近 50 条 Payment Entry。
+
+`GET /api/v1/payments/{paymentId}` 只暴露当前 V1 支持的 Payment shape：Customer Receive + 当前 Company + 恰好关联一张 Sales Order。不符合返回 `PAYMENT_NOT_SUPPORTED`。
 
 ------
 
@@ -680,7 +684,6 @@ AI Action 应表达为：
 
 - 客户
 - 日期
-- 备注
 
 ### 商品明细
 
@@ -753,9 +756,7 @@ AI 与手工录入必须共用这个页面。
 已收：¥1,000
 未收：¥1,320
 
-### 备注
-
-下午自提
+备注暂不支持。后端正式支持前，订单详情不展示备注区域。
 
 ### 操作记录
 

@@ -1,6 +1,6 @@
 # 09_DEVELOPMENT_PLAN.md
 
-版本：3.1
+版本：3.2
 
 # 开发计划
 
@@ -49,7 +49,7 @@ Phase 1A 的临时 Token → Tenant Filter 已在本阶段替换为正式认证�
 
 Draft 边界见 `docs/04_DOMAIN_MODEL.md` 第 8 节与 `docs/06_API_DATA_DESIGN.md` 第 24 节。
 
-状态：Phase 3.1 完整性收口已完成（同一分支 `cursor/erpnext-order-payment-write-b267`）。未改 ERPNext、未建 Custom App。CI 只用 Fake + Testcontainers，真实 Write Probe 标记 `erp-smoke`，默认不跑。
+状态：Phase 3.2 外部写边界与 UI 合同收口已完成（同一分支 `cursor/erpnext-order-payment-write-b267`）。未改 ERPNext、未建 Custom App。CI 只用 Fake + Testcontainers，真实 Write Probe 标记 `erp-smoke`，默认不跑。
 
 Phase 3 冻结：
 
@@ -58,13 +58,14 @@ Phase 3 冻结：
 - `POST /orders` 永远创建 Draft；Submit 只走独立接口
 - `remainingToCollect` 替代 `outstandingAmount`
 - 不伪造订单「待确认」
-- 付款方式来自 Mode of Payment，且必须绑定当前 Company `default_account` → Receive 的 `paid_to`
+- 付款方式来自 Mode of Payment；`get_payment_entry` 传入 `bank_account = default_account`，由 ERPNext 生成 `paid_to`
 - 业务收款金额 = Sales Order reference `allocated_amount`
-- Confirm 只允许 Order-related Customer Receive，并重新校验剩余金额
+- Confirm / Detail 只允许 Order-related Customer Receive
 - 非空 `note` 明确拒绝，不得静默丢失
 - `PUT.transactionDate` 必填；创建默认日期使用 `Asia/Shanghai`
 - `orderItemId` 只能引用当前订单自己的 child row
-- Payment 列表从 `Payment Entry Reference` 查询
+- `GET /payments` 的 `relatedOrderId` 必填；不提供全局收款流水
+- Create Order / Create Payment：ERP create 成功后立即把幂等记录标为 `SUCCEEDED(resourceId)`，再做 enrichment；SUCCEEDED replay 不再重新校验可变业务状态
 
 MVP 限制（本阶段不优化、不引入 Elasticsearch / 本地索引 / Custom App）：
 
@@ -114,10 +115,11 @@ MVP 限制（本阶段不优化、不引入 Elasticsearch / 本地索引 / Custo
 → 添加苹果80果 / 箱 / 20
 → 添加香蕉粉蕉 / 件 / 30
 → 保存草稿（创建 ERPNext Draft Sales Order）
+→ 草稿页「保存修改」更新同一张 Sales Order
 → 提交
 → ERPNext
 
-再次「保存修改」必须更新同一张 Sales Order，不新建单。
+已提交订单普通业务页面只读。V1 不提供 Update Items / Cancel / Amend / 重新提交。
 
 ### 2.2 第二条：AI 创建订单（Phase 5）
 
@@ -169,7 +171,8 @@ Order Status 不因付款自动完成。
 - 删除商品
 - 修改商品数量 / 价格
 - 保存草稿创建 ERPNext Draft
-- 再次保存修改同一张 Sales Order
+- 草稿再次保存修改同一张 Sales Order
+- 已提交订单只读，不提供普通保存修改
 - 存在无效商品行时保存草稿被阻止且不静默删除
 - AI 追加商品
 - 客户姓名 ASR 错误

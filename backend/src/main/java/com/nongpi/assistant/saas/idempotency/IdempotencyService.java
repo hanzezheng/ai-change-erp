@@ -21,6 +21,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 @Service
@@ -77,11 +78,12 @@ public class IdempotencyService {
         }
     }
 
-    public <T> T executeWrite(IdempotencyRecordEntity record, Supplier<T> writer, java.util.function.Function<T, String> resourceId) {
+    public <T> T executeWrite(IdempotencyRecordEntity record,
+                              Supplier<String> mutation,
+                              Function<String, T> afterCommit) {
+        String resourceId;
         try {
-            T created = writer.get();
-            succeed(record.getId(), resourceId.apply(created));
-            return created;
+            resourceId = mutation.get();
         } catch (RuntimeException ex) {
             if (isUnknownOutcome(ex)) {
                 markUnknown(record.getId());
@@ -89,6 +91,17 @@ public class IdempotencyService {
                         BusinessErrorCode.IDEMPOTENCY_OUTCOME_UNKNOWN.defaultMessage());
             }
             abandon(record.getId());
+            throw ex;
+        }
+        if (resourceId == null || resourceId.isBlank()) {
+            abandon(record.getId());
+            throw new BusinessException(BusinessErrorCode.INTERNAL_ERROR, "ERP 写入未返回资源 ID");
+        }
+        succeed(record.getId(), resourceId);
+        try {
+            return afterCommit.apply(resourceId);
+        } catch (RuntimeException ex) {
+            // ERP create 已成功并固化 SUCCEEDED(resourceId)。enrichment / detail 失败不得删除幂等记录。
             throw ex;
         }
     }

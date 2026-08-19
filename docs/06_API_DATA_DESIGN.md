@@ -200,9 +200,11 @@ ID
   "productId": "APPLE",
   "itemCode": "APPLE-80",
   "productName": "苹果80果",
-  "spec": "80mm"
+  "spec": "80果"
 }
 ```
+
+`spec` 取 ERPNext `Item Variant Attribute.attribute_value` 原文。当前真实站点是「80果」。不要编造「80mm」，Flutter 也不要把「80果」转换成「80mm」。
 
 ERPNext 中 `Item.name == Item.item_code`，不存在独立的 Variant 主键。
 
@@ -403,7 +405,7 @@ lowStock
   "productId": "APPLE",
   "itemCode": "APPLE-80",
   "productName": "苹果80果",
-  "spec": "80mm",
+  "spec": "80果",
   "aliases": ["八零", "八零苹果"],
   "defaultUom": "箱",
   "allowedUoms": [
@@ -515,7 +517,7 @@ results[]
       "productId": "APPLE",
       "itemCode": "APPLE-80",
       "productName": "苹果80果",
-      "spec": "80mm",
+      "spec": "80果",
       "defaultUom": "箱",
       "referencePrice": 68,
       "lastDealPrice": 65,
@@ -684,7 +686,7 @@ lastDealPrice
   "productId": "APPLE",
   "itemCode": "APPLE-80",
   "productName": "苹果80果",
-  "spec": "80mm",
+  "spec": "80果",
   "qty": 20,
   "uom": "箱",
   "rate": 68,
@@ -1074,12 +1076,12 @@ paymentMethodLabel
 创建 Customer Receive 时：
 
 1. 按所选方式解析当前 Company 的 `default_account`
-2. 调用 ERPNext `get_payment_entry`，`party_amount` = 本次订单分配金额
-3. 设置 `mode_of_payment` 与 `paid_to = default_account`
-4. 不覆盖 ERPNext 生成的 `paid_amount` / `received_amount` / 汇率
+2. 调用 ERPNext `get_payment_entry`，传入 `party_amount` = 本次订单分配金额，以及 `bank_account` = 该 `default_account`
+3. 只补充 `mode_of_payment` 和真正需要的 `reference_no` / `reference_date`
+4. 不覆盖 ERPNext 生成的 `paid_to` / `paid_to_account_currency` / `paid_amount` / `received_amount` / 汇率
 5. 由 ERPNext 保存并校验
 
-Receive 场景下，所选 Mode 的 `default_account` 必须成为 `Payment Entry.paid_to`。不要猜科目。
+Receive 场景下，所选 Mode 的 `default_account` 必须在生成阶段就成为 `Payment Entry.paid_to`。不要先让 ERP 用默认账户生成金额，再由 Spring Boot 改 `paid_to`。不要猜科目。
 
 ------
 
@@ -1160,6 +1162,30 @@ Supplier Pay、Internal Transfer、无 Sales Order、关联 Sales Invoice、其�
 - paymentStatus
 
 禁止只改 Payment 自己的状态。
+
+------
+
+# 35.1 查询 Payment
+
+```
+GET /api/v1/payments?relatedOrderId={orderId}
+```
+
+`relatedOrderId` 必填。缺失或 blank 返回 `INVALID_REQUEST`。
+
+Phase 3 V1 不提供全局收款流水。不要用空数组伪装「当前没有任何收款」。
+
+收款历史从具体订单详情进入。以后如果产品需要全局收款流水，再单独实现明确的全局 Payment Search API。
+
+```
+GET /api/v1/payments/{paymentId}
+```
+
+详情必须验证同一业务 shape：Customer Receive + 当前 Company + 恰好关联一张 Sales Order。
+
+Supplier Pay、Internal Transfer、无 Sales Order 的 Payment Entry：返回 `PAYMENT_NOT_SUPPORTED`。
+
+不要让 confirm 很严格、detail 却可以读取另一类会计 Payment。
 
 ------
 
@@ -1267,7 +1293,7 @@ pageSize
   "itemCode": "APPLE-80",
   "productId": "APPLE",
   "productName": "苹果80果",
-  "spec": "80mm",
+  "spec": "80果",
   "quantity": 450,
   "stockUom": "箱",
   "warehouse": "主仓库 - T",
@@ -1410,7 +1436,7 @@ payload
         "itemCode": "APPLE-80",
         "productId": "APPLE",
         "productName": "苹果80果",
-        "spec": "80mm",
+        "spec": "80果",
         "qty": 20,
         "uom": "箱",
         "rate": 65
@@ -1511,12 +1537,12 @@ APPLE-85
         {
           "itemCode": "APPLE-70",
           "name": "苹果70果",
-          "spec": "70mm"
+          "spec": "70果"
         },
         {
           "itemCode": "APPLE-80",
           "name": "苹果80果",
-          "spec": "80mm"
+          "spec": "80果"
         }
       ]
     }
@@ -2230,7 +2256,8 @@ POST   /orders
 PUT    /orders/{id}
 POST   /orders/{id}/submit
 
-GET    /payments
+GET    /payments?relatedOrderId=
+GET    /payments/{id}
 POST   /payments
 POST   /payments/{id}/confirm
 GET    /orders/{id}/payment-summary

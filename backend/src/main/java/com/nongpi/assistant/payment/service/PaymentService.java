@@ -55,23 +55,27 @@ public class PaymentService {
     public Payment createDraft(CreatePaymentRequest request, String idempotencyKey) {
         UserPrincipal actor = SecurityUtils.requireUser();
         ErpConnection connection = connection();
-        validate(connection, request);
-
         String hash = idempotencyService.hash(request);
         IdempotencyRecordEntity record = idempotencyService.begin(
                 actor.tenantId(), IdempotencyService.CREATE_PAYMENT, idempotencyKey, hash);
         if (record.getStatus() == IdempotencyStatus.SUCCEEDED) {
             return getById(record.getResourceId());
         }
+        try {
+            validate(connection, request);
+        } catch (RuntimeException ex) {
+            idempotencyService.abandon(record.getId());
+            throw ex;
+        }
         Payment created = idempotencyService.executeWrite(record,
-                () -> paymentEntryErpAdapter.createDraft(connection, new PaymentEntryErpAdapter.PaymentWriteCommand(
+                () -> paymentEntryErpAdapter.createDraftResource(connection, new PaymentEntryErpAdapter.PaymentWriteCommand(
                         request.customerId(),
                         request.relatedOrderId(),
                         request.amount(),
                         request.paymentMethodId(),
                         request.referenceNo(),
                         request.referenceDate())),
-                Payment::paymentId);
+                this::getById);
         auditService.success(actor.tenantId(), actor.userId(), AuditActions.PAYMENT_DRAFT_CREATE,
                 "PaymentEntry", created.paymentId(), Map.of(
                         "customerId", created.customerId() == null ? "" : created.customerId(),
@@ -98,9 +102,10 @@ public class PaymentService {
     }
 
     public PageResponse<Payment> list(String relatedOrderId, PageRequestParams page) {
-        List<Payment> all = relatedOrderId == null || relatedOrderId.isBlank()
-                ? List.of()
-                : paymentEntryErpAdapter.listByOrder(connection(), relatedOrderId);
+        if (relatedOrderId == null || relatedOrderId.isBlank()) {
+            throw new BusinessException(BusinessErrorCode.INVALID_REQUEST, "必须提供 relatedOrderId");
+        }
+        List<Payment> all = paymentEntryErpAdapter.listByOrder(connection(), relatedOrderId);
         int from = Math.min(page.offset(), all.size());
         int to = Math.min(from + page.pageSize(), all.size());
         boolean hasMore = to < all.size();

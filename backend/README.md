@@ -96,7 +96,7 @@ Master Key 来自 `APP_CREDENTIAL_ENCRYPTION_KEY`，不入库、不进 Git、不
 | `POST` | `/api/v1/orders/{orderId}/submit` | 提交同一张订单                         |
 | `GET`  | `/api/v1/orders/{orderId}/payment-summary` | 收款进度：confirmedPaid / remainingToCollect |
 | `GET`  | `/api/v1/payment-methods`        | 当前 Company 已配置账户的 Mode of Payment |
-| `GET`  | `/api/v1/payments`               | 按 relatedOrderId 从 Payment Entry Reference 列出收款 |
+| `GET`  | `/api/v1/payments`               | 按必填 relatedOrderId 列出该订单收款；缺参返回 400 |
 | `GET`  | `/api/v1/payments/{paymentId}`   | 收款详情                                 |
 | `POST` | `/api/v1/payments`               | 创建 Draft Payment Entry（需 Idempotency-Key） |
 | `POST` | `/api/v1/payments/{id}/confirm`  | 确认同一张收款                           |
@@ -226,11 +226,13 @@ ERPNext REST 无法把 `Bin` 与 `Item Reorder` 做联表分页过滤。当前�
 - child row `name` 可作为 `orderItemId`
 - `frappe.client.submit` 可用；已提交文档拒绝普通 PUT
 - 过期 `modified` 返回 `TimestampMismatchError`，映射为 `ORDER_CONFLICT`
-- `get_payment_entry(Sales Order, party_amount)` 生成标准 Payment Entry 后，必须把所选 Mode of Payment 在当前 Company 的 `default_account` 写入 `paid_to`；不覆盖 ERP 生成的 `paid_amount` / `received_amount`
+- `get_payment_entry(Sales Order, party_amount, bank_account=selectedMode.defaultAccount)` 由 ERPNext 生成 `paid_to` / 币种 / 金额 / 汇率；Spring Boot 只补 `mode_of_payment` 和 reference，不再事后改 `paid_to`
 - 业务收款金额来自 Sales Order 对应 `Payment Entry Reference.allocated_amount`
 - Draft 收款不计 `advance_paid`；Submit 后累计；付清后订单 `status` 仍为 `To Deliver and Bill`，不是 Completed
 - Confirm 只允许 Order-related Customer Receive；两张满额 Draft 不能都确认成功
-- `GET /payments?relatedOrderId=` 从 `Payment Entry Reference` 查询，不扫描全站最近 50 条
+- `GET /payments?relatedOrderId=` 的 `relatedOrderId` 必填；从 `Payment Entry Reference` 查询，不扫描全站最近 50 条，也不返回空数组伪装全局流水
+- `GET /payments/{id}` 只暴露 Customer Receive + 当前 Company + 恰好一张 Sales Order；其它 shape 返回 `PAYMENT_NOT_SUPPORTED`
+- Create Order / Create Payment：ERP `createDoc` 成功后立即把幂等记录标为 `SUCCEEDED(resourceId)`，再做 get/enrichment。SUCCEEDED replay 按原 resourceId 返回，不再重新校验可变业务状态
 - `APPLE-80` 箱与斤价格分离，`conversion_factor` 由 ERPNext 回填
 - `delivery_date` 设为 `transaction_date` 可创建成功
 - 非空 `note` 明确拒绝（`UNSUPPORTED_FIELD`）

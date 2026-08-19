@@ -37,6 +37,7 @@ final class FakeErpWriteEngine {
     private final AtomicInteger childSeq = new AtomicInteger(1);
     private LocalDateTime clock = LocalDateTime.of(2026, 8, 19, 12, 0, 0);
     private boolean hangNextWrite;
+    private JsonNode lastGetPaymentEntryArgs;
 
     FakeErpWriteEngine() {
         seedPaymentMethods();
@@ -52,6 +53,7 @@ final class FakeErpWriteEngine {
         childSeq.set(1);
         clock = LocalDateTime.of(2026, 8, 19, 12, 0, 0);
         hangNextWrite = false;
+        lastGetPaymentEntryArgs = null;
         seedPaymentMethods();
     }
 
@@ -124,6 +126,7 @@ final class FakeErpWriteEngine {
             return message(stored);
         }
         if ("erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry".equals(method)) {
+            lastGetPaymentEntryArgs = args;
             String orderId = args.path("dn").asText();
             ObjectNode order = salesOrders.get(orderId);
             if (order == null) {
@@ -139,7 +142,8 @@ final class FakeErpWriteEngine {
             pe.put("party", order.path("customer").asText());
             pe.put("party_name", order.path("customer_name").asText());
             pe.put("paid_from", "Debtors - NPT");
-            pe.put("paid_to", "Cash - NPT");
+            String bankAccount = textOr(args, "bank_account", "Cash - NPT");
+            pe.put("paid_to", bankAccount);
             pe.put("paid_from_account_currency", "CNY");
             pe.put("paid_to_account_currency", "CNY");
             pe.put("source_exchange_rate", 1);
@@ -344,6 +348,18 @@ final class FakeErpWriteEngine {
             return payments.get(name);
         }
         return null;
+    }
+
+    int salesOrderCount() {
+        return salesOrders.size();
+    }
+
+    int paymentCount() {
+        return payments.size();
+    }
+
+    JsonNode lastGetPaymentEntryArgs() {
+        return lastGetPaymentEntryArgs;
     }
 
     ObjectNode paymentDoc(String name) {

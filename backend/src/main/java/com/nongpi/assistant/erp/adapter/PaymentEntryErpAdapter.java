@@ -21,6 +21,11 @@ public interface PaymentEntryErpAdapter {
 
     Payment createDraft(ErpConnection connection, PaymentWriteCommand command);
 
+    /**
+     * 唯一 ERP create mutation。成功后只返回 Payment Entry.name，不再做 DTO enrichment。
+     */
+    String createDraftResource(ErpConnection connection, PaymentWriteCommand command);
+
     Payment confirm(ErpConnection connection, String paymentId);
 
     Optional<Payment> findById(ErpConnection connection, String paymentId);

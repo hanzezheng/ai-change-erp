@@ -1,7 +1,7 @@
 # 05_UI_SPEC.md
 
-版本：3.0
-状态：Prototype V1 Frozen / Development Baseline
+版本：3.2
+状态：Development Baseline（已与 Phase 3 后端合同对齐）
 
 # AI 农批经营助手 UI 设计规范
 
@@ -392,11 +392,16 @@ Sheet：
 
 ## Order Status
 
+正式 V1：
+
 - 草稿
-- 待确认
 - 已提交
 - 已完成
 - 已取消
+
+不要伪造订单「待确认」。ERPNext 没有对应的订单状态。
+
+收款 Draft 的「待确认到账」是 Payment Confirmation Status，不是 Order Status。
 
 ## Pay Status
 
@@ -426,9 +431,9 @@ Sheet：
 
 金额汇总
 
-备注
-
 底部业务操作
+
+备注暂不支持。后端正式支持前，UI 不展示备注输入框。
 
 ------
 
@@ -476,10 +481,14 @@ Product
 
 苹果
 
-- 苹果70果 / 70mm
-- 苹果75果 / 75mm
-- 苹果80果 / 80mm
-- 苹果85果 / 85mm
+- 苹果70果 / 70果
+- 苹果75果 / 75果
+- 苹果80果 / 80果
+- 苹果85果 / 85果
+
+规格展示 ERPNext `Item Variant Attribute.attribute_value` 原文。
+
+Flutter 不把「80果」自行转换成「80mm」。
 
 如果不同规格对应不同 ERPNext Item / Variant：
 
@@ -510,7 +519,7 @@ Product
 苹果
 八零
 80
-80mm
+80果
 
 都可以定位对应 Variant。
 
@@ -524,7 +533,7 @@ Product
 
 每行建议展示：
 
-苹果80果　80mm
+苹果80果　80果
 八零苹果 · 箱/斤 · 库存450
 
 右侧：
@@ -566,7 +575,7 @@ Product
 
 标准形式：
 
-苹果80果 · 80mm　　　　　　　¥1,360 ＞
+苹果80果 · 80果　　　　　　　¥1,360 ＞
 20箱 × ¥68/箱　　　　上次 ¥65/箱
 
 香蕉粉蕉 · 7成熟　　　　　　　　¥960 ＞
@@ -625,7 +634,7 @@ Product
 编辑商品
 
 苹果80果
-80mm　　　　　　　　　换一个 ＞
+80果　　　　　　　　　换一个 ＞
 
 数量
 20
@@ -797,17 +806,15 @@ defaultUom
 提交订单
 麦克风
 
-## 待确认
-
-保存修改
-确认提交
-麦克风
-
 ## 已提交
 
-根据权限和业务规则：
+普通业务页面只读。
 
-保存修改
+V1 不提供：
+
+- 保存修改 / Update Items
+- Cancel / Amend
+- 重新提交
 
 ## 已完成
 
@@ -833,8 +840,6 @@ defaultUom
 
 付款摘要
 
-备注
-
 操作记录
 
 底部业务操作
@@ -849,7 +854,7 @@ Flutter 正式实现应优先采用与订单编辑一致的移动交易列表模
 
 推荐：
 
-苹果80果 · 80mm　　　　　　¥1,360
+苹果80果 · 80果　　　　　　¥1,360
 20箱 × ¥68/箱　　　上次 ¥65/箱
 
 避免 PC 表格感。
@@ -864,26 +869,31 @@ Flutter 正式实现应优先采用与订单编辑一致的移动交易列表模
 已收　　　¥1,000
 未收　　　¥1,320
 
+UI 文案可以继续使用中文「未收」。
+
+正式字段名是 `remainingToCollect`，不要使用 `outstandingAmount`。
+
 付款状态由 Payment 实际到账金额计算。
 
 ------
 
 # 28. 记录收款
 
+Phase 4 V1 只支持：
+
+关联一张已提交 Sales Order 的 Customer Receive。
+
+记录收款入口优先从订单详情进入。
+
+不实现 standalone customer payment。
+
 收款页面必须支持：
 
-- 选择正式客户
+- 客户（由关联订单带入，只读展示）
 - 金额
-- 收款方式
+- 收款方式（来自 `GET /api/v1/payment-methods`）
 - 到账状态
-- 备注
 - 关联订单
-
-客户来源：
-
-- Customer Selector
-- 关联订单自动带入
-- AI解析
 
 禁止正式 Payment 只保存一个自由输入客户姓名。
 
@@ -893,17 +903,27 @@ Flutter 正式实现应优先采用与订单编辑一致的移动交易列表模
 - customerName
 - relatedOrderId
 
+备注暂不支持。后端正式支持前，UI 不展示备注输入框。
+
+Phase 4 V1 只支持后端允许的同币种订单收款。Flutter 不自己计算汇率。
+
 ------
 
 # 29. 收款方式
 
-V1：
+不要写死：
 
-- 微信转账
-- 现金
-- 银行转账
+微信转账 / 现金 / 银行转账。
 
-未来从 ERPNext Payment Mode / 配置加载。
+付款方式由：
+
+```
+GET /api/v1/payment-methods
+```
+
+动态返回当前 Company 真正可用的 ERPNext Mode of Payment。
+
+未出现在该列表中的方式，UI 不得展示为可选项。
 
 ------
 
@@ -914,15 +934,39 @@ V1：
 已到账
 待确认
 
-用户本人明确记录已经到账的款：
+这是 Payment Confirmation Status，不是订单状态。
 
-可以直接选择已到账。
+后端语义：
 
-待确认记录必须存在后续：
+```
+POST /payments
+→ 创建待确认 Draft Payment Entry
 
-确认到账
+POST /payments/{id}/confirm
+→ 确认到账
+```
 
-操作。
+Flutter 如果用户选择「待确认」：
+
+只执行 `POST /payments`。
+
+如果用户明确选择「已到账」：
+
+可以顺序执行：
+
+```
+POST /payments
+→ POST /payments/{id}/confirm
+```
+
+用户不需要再手动确认第二次。
+
+如果第二步失败：
+
+保留已经创建的 Draft Payment，
+明确提示「收款已保存为待确认」。
+
+不要创建第二张 Payment。
 
 ------
 
@@ -933,8 +977,8 @@ V1：
 confirmedPaid =
 该订单所有已到账 Payment 总额
 
-outstanding =
-orderTotal - confirmedPaid
+remainingToCollect =
+max(orderTotal - confirmedPaid, 0)
 
 规则：
 
@@ -1045,10 +1089,10 @@ Product / Variant / UOM。
 
 苹果
 
-苹果70果　70mm
+苹果70果　70果
 箱 ¥58 / 斤 ¥3.2
 
-苹果80果　80mm
+苹果80果　80果
 箱 ¥68 / 斤 ¥3.8
 
 正式商品数据来自 ERPNext。
@@ -1076,7 +1120,7 @@ App 不建立第二套 Item 主数据。
 
 例如：
 
-苹果80果　80mm　　　　　　450箱
+苹果80果　80果　　　　　　450箱
 
 库存事实来自 ERPNext。
 
@@ -1153,7 +1197,7 @@ Customer：
 
 Items：
 
-苹果80果 / 80mm / 20箱
+苹果80果 / 80果 / 20箱
 香蕉粉蕉 / 7成熟 / 30件
 
 进入：
@@ -1223,7 +1267,7 @@ AI不能随意选择。
 直接展示：
 
 苹果80果
-80mm
+80果
 库存 450箱
 
 不要只打开库存列表让用户自己找。
@@ -1257,11 +1301,11 @@ AI不能随意选择。
 列表项
 主操作
 
-必须有真实原型/产品行为。
+必须有真实后端行为和真实数据。
 
-尚未实现的功能：
+尚未实现、没有后端 API 的功能：
 
-不做成明显可点击入口。
+不做成明显可点击入口，也不用假按钮 / 假数据伪装。
 
 ------
 

@@ -58,9 +58,21 @@ public class FrappeSalesOrderErpAdapter implements SalesOrderErpAdapter {
 
     @Override
     public Order createDraft(ErpConnection connection, SalesOrderWriteCommand command) {
+        String orderId = createDraftResource(connection, command);
+        return findById(connection, orderId).orElseThrow(() -> new BusinessException(
+                BusinessErrorCode.ORDER_NOT_FOUND, BusinessErrorCode.ORDER_NOT_FOUND.defaultMessage(),
+                Map.of("orderId", orderId)));
+    }
+
+    @Override
+    public String createDraftResource(ErpConnection connection, SalesOrderWriteCommand command) {
         requireCompany(connection);
         JsonNode created = erpRestClient.createDoc(connection, ErpSalesOrder.DOCTYPE, toCreatePayload(connection, command));
-        return mapOrder(connection, created);
+        String orderId = ErpValues.trimToNull(created.path("name").asText(null));
+        if (orderId == null) {
+            throw new BusinessException(BusinessErrorCode.INTERNAL_ERROR, "ERPNext 创建 Sales Order 未返回 name");
+        }
+        return orderId;
     }
 
     @Override
