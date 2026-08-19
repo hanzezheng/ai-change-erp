@@ -83,6 +83,8 @@ MVP 限制（本阶段不优化、不引入 Elasticsearch / 本地索引 / Custo
 
 本阶段结束时，不用 AI 必须能完整经营。
 
+状态：已完成（见分支 `cursor/flutter-manual-business-closure-b267`）。客户端在仓库根目录 `mobile/`。麦克风 / AI / ASR 未启用，留待 Phase 5。
+
 ### Phase 5：AI / ASR / Resolver
 
 - 短按快速处理
