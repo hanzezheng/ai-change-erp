@@ -38,7 +38,9 @@ local profile 引导管理员（没有这些环境变量就不会创建默认账
 export APP_BOOTSTRAP_LOGIN=boss
 export APP_BOOTSTRAP_PASSWORD=...
 export APP_BOOTSTRAP_TENANT_NAME=农批测试档口
-export ERP_BASE_URL=http://localhost:8080
+# ERPNext 与 Spring Boot 使用不同端口；Spring Boot 默认监听 8080，
+# 以下使用 Frappe/ERPNext 常见的 8000 映射（按实际部署端口调整）。
+export ERP_BASE_URL=http://localhost:8000
 export ERP_SITE_NAME=frontend
 export ERP_API_KEY=...
 export ERP_API_SECRET=...
