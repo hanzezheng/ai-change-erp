@@ -1,6 +1,6 @@
 # 10_CURRENT_STATUS.md
 
-版本：1.0  
+版本：1.1  
 更新日期：2026-08-20  
 用途：**任何人接手项目时先读本文**，再按需读 `AGENTS.md` 与其它 docs。
 
@@ -8,9 +8,9 @@
 
 ## 1. 一句话现状
 
-后端 Phase 1–3 已进 `main`；Flutter 无 AI 经营闭环（Phase 4）**代码与单测已完成**，在 Draft [PR #4](https://github.com/hanzezheng/ai-change-erp/pull/4)，**尚未合并**。  
-负责人已在 Chrome 真栈冒烟通过；API 黄金路径 18/18。  
-**当前闸门：把 PR #4 未提交修复（CORS / init-dev）提交 → Ready → Merge。在此之前禁止开始 Phase 5（AI）。**
+后端 Phase 1–3 与 Flutter Phase 4（无 AI 经营闭环）**均已合并 `main`**（含 [PR #4](https://github.com/hanzezheng/ai-change-erp/pull/4) 内容；本地 merge 提交 `5b2cab5`）。  
+Chrome 冒烟 + API 黄金路径 18/18 已通过；Spring 已支持本机 Flutter Web CORS。  
+**当前闸门已解除：可以开 Phase 5（AI / ASR / Resolver）分支。**
 
 ---
 
@@ -21,12 +21,12 @@
 | Phase 1 | ERPNext 主数据只读 | **已合并 main** | `backend/` Adapter |
 | Phase 2 | SaaS / JWT / Tenant / Flyway | **已合并 main** | PR #2 |
 | Phase 3 | 订单 Draft/Submit、收款累计 | **已合并 main** | PR #3 |
-| Phase 4 | Flutter 无 AI 经营闭环 | **Draft PR #4** | 分支 `cursor/flutter-manual-business-closure-b267`，目录 `mobile/` |
-| Phase 4.1 | 可靠性收口 + 本地脚本 | **含在 PR #4** | 分页、Payment draft、WSL/ERP 初始化脚本 |
-| Phase 5 | AI / ASR / Resolver | **未开始** | — |
+| Phase 4 | Flutter 无 AI 经营闭环 | **已合并 main** | `mobile/`（原 PR #4） |
+| Phase 4.1 | 可靠性收口 + 本地脚本 | **已合并 main** | 分页、Payment draft、WSL/ERP 初始化、CORS |
+| Phase 5 | AI / ASR / Resolver | **未开始（可开）** | — |
 | Phase 6 | Identity / Knowledge | **未开始** | — |
 
-长期阶段规划仍以 [`09_DEVELOPMENT_PLAN.md`](09_DEVELOPMENT_PLAN.md) 为准；**以本文「闸门」覆盖文档里写「Phase 4 已完成」但 PR 未合的歧义**。
+长期阶段规划仍以 [`09_DEVELOPMENT_PLAN.md`](09_DEVELOPMENT_PLAN.md) 为准；进度与闸门以本文为准。
 
 ---
 
@@ -40,16 +40,17 @@
 - 写：多商品 Draft 订单、同单更新、Submit、收款 Draft/Confirm、payment-summary
 - CI：`.github/workflows/backend-test.yml`（Testcontainers，默认不连真 ERP）
 
-### Flutter（PR #4 分支）
+### Flutter（main）
 
-- 登录、五槽导航（麦克风 **disabled**）
+- 登录、五槽导航（麦克风 **disabled**，留给 Phase 5）
 - 订单列表 / Local Edit / Customer·Product·UOM Selector
 - Draft 保存与提交、订单详情、分次收款与补收尾款
 - 客户 / 库存 / 首页 / 更多
 - 单测约 51、`flutter analyze` 干净；Mobile CI 含 debug APK
 - **不直连 ERPNext**，只打 Spring `/api/v1`
+- 本机开发 CORS：允许 `http://localhost:*` / `http://127.0.0.1:*`
 
-### 本地工具（PR #4 分支）
+### 本地工具（main）
 
 | 脚本 | 作用 |
 |------|------|
@@ -63,10 +64,9 @@
 
 | 项 | 说明 |
 |----|------|
-| PR #4 未合 | Chrome 冒烟已过；待提交 CORS + init-dev 修复后 Ready / Merge |
-| Android Emulator | 多数 Windows 机尚未建 AVD；可用 Chrome/Windows 桌面先验收 |
+| Android Emulator | 多数 Windows 机尚未建 AVD；Chrome 已可验收 |
 | 生产部署 | 无正式 Nginx/Compose/发布签名；仅本地开发栈 |
-| Phase 5 | **明确禁止提前开做** |
+| Phase 5 | 可开分支；严格按 `AGENTS.md` + `08_AI_ENGINE_DESIGN.md` |
 
 Windows + WSL 常见坑（详见根目录 `README.md`）：
 
@@ -79,23 +79,25 @@ Windows + WSL 常见坑（详见根目录 `README.md`）：
 
 ## 5. 下一步（按优先级，禁止跳步）
 
-### P0 — 立即（关闭 Phase 4）
+### P0 — 下一步开发（Phase 5）
 
-1. ~~真实栈 + Chrome 冒烟~~（已完成；API 18/18 亦通过）
-2. **提交并推送**：Spring CORS（Flutter Web）、`init-dev.sh` CRLF/console 修复、本文验收更新
-3. PR #4 转 **Ready** → CI 绿 → **Merge**
-4. Merge 后：本文第 2 节 Phase 4 改为「已合并 main」；从 `main` 起干净拓扑（Spring 8080 / ERP 8000）
+从 `main` 开分支，按序：
 
-### P1 — Phase 4 合并之后
+1. Python FastAPI AI Service 骨架 + Model Gateway  
+2. ASR（Voice → Text）接入  
+3. Customer / Product Resolver  
+4. Intent：`create_order` / `update_current_order`（先于其它 Intent）  
+5. Flutter：全局麦克风短按 Quick Action / 长按直录（仍走 Spring，不直连 AI）
 
-1. 可选：Android Studio + AVD，补真机/模拟器截图（非合并硬门槛）。
-2. 清理多余本地 Spring 多实例习惯；env 模板 `.env.example`（无真实密钥）。
-3. 再开 **Phase 5** 分支：ASR → Intent → Customer/Product Resolver → `create_order` / `update_current_order`（严格按 `AGENTS.md` + `08_AI_ENGINE_DESIGN.md`）。
+### P1 — 收尾与加固
+
+1. 可选：Android Studio + AVD 截图  
+2. env 模板 `.env.example`（无真实密钥）  
+3. 若 GitHub 上 PR #4 仍显示 Draft/Open：在网页关闭或标记已合并（内容已进 `main`）
 
 ### P2 — 明确不做（除非产品书面改决策）
 
 - 催款工作流、多 Agent、自研第二套 ERP、K8s MVP、向量库集群
-- 未合 Phase 4 前任何 AI 演示优先于手工经营
 
 ---
 
@@ -104,13 +106,12 @@ Windows + WSL 常见坑（详见根目录 `README.md`）：
 ```text
 □ 读 AGENTS.md 第 1、8、11–13、58、108 节
 □ 读本文全文 + README.md「端口约定」与「Windows/WSL」
-□ git checkout cursor/flutter-manual-business-closure-b267 && git pull
-□ docker ps 确认 ERPNext（frontend 映射 8000 或 8080）与 postgres
+□ git checkout main && git pull
+□ docker ps 确认 ERPNext（frontend 映射 8000）与 postgres
 □ bash scripts/erpnext/init-dev.sh（或 wsl-dev.sh）
 □ source ~/nongpi-local.env && 启动 Spring，curl /actuator/health
 □ python3 mobile/scripts/phase41_api_golden_path.py  → 期望 18/18
 □ Windows: flutter run -d chrome --dart-define=API_BASE_URL=http://<WSL_IP>:8080
-□ 走完第 5 节 P0 手工路径，把结果记回本文「验收记录」
 ```
 
 ---
@@ -122,13 +123,14 @@ Windows + WSL 常见坑（详见根目录 `README.md`）：
 | 2026-08-20 | Cloud Agent | 真 API 栈 | API 黄金路径 18/18 | Emulator 截图未完成 |
 | 2026-08-20 | 本地接手 | Windows WSL + ERP `:8000` + Spring `:8080` | 种子 / API 18/18 / Spring UP | 补 CORS 后 Chrome 可连 |
 | 2026-08-20 | 负责人 | Flutter Chrome → WSL IP `:8080` | 冒烟通过（点测无明显问题） | 完整 UI 黄金路径未逐项书面勾选 |
+| 2026-08-20 | — | git | Phase 4 已合入 `main`（`5b2cab5`） | 含 CORS / init-dev |
 
 **合并判定签字：**
 
 - [x] 手工冒烟通过（Chrome）  
-- [ ] PR #4 Ready + CI 绿  
-- [ ] 已 merge 入 main  
-- [ ] 本文第 2 节 Phase 4 改为「已合并 main」
+- [x] 修复已推送并合入 main（本地 merge 推送；若网页 PR 仍 Open 请手动关闭）  
+- [x] 已 merge 入 main  
+- [x] 本文第 2 节 Phase 4 改为「已合并 main」
 
 ---
 
