@@ -1,15 +1,20 @@
 # AI 农批经营助手
 
-农批经营 SaaS + 移动客户端 + ERPNext 业务后端。  
-产品规则见 [`AGENTS.md`](AGENTS.md)，阶段计划见 [`docs/09_DEVELOPMENT_PLAN.md`](docs/09_DEVELOPMENT_PLAN.md)。
+农批经营 SaaS + 移动客户端 + ERPNext 业务后端。
 
-**当前进度（2026-08）**
+**接手必读（按顺序）：**
+
+1. [`docs/10_CURRENT_STATUS.md`](docs/10_CURRENT_STATUS.md) — **当前进度、阻塞、下一步**
+2. [`AGENTS.md`](AGENTS.md) — 产品与架构硬约束
+3. 本文下面的运行说明；文档索引见 [`docs/README.md`](docs/README.md)
+
+**进度摘要（2026-08-20）**
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
 | 后端 Phase 1–3 | 已合并 `main` | ERP 读 + SaaS + 订单/收款写 |
-| Flutter Phase 4 | [Draft PR #4](https://github.com/hanzezheng/ai-change-erp/pull/4) | 无 AI 手工经营闭环 |
-| AI / ASR | 未开始 | Phase 5，Phase 4 合并后再做 |
+| Flutter Phase 4 | [Draft PR #4](https://github.com/hanzezheng/ai-change-erp/pull/4) | 代码完成，待负责人手工验收后合并 |
+| AI / ASR | 未开始 | Phase 5，**Phase 4 合并前禁止开始** |
 
 ---
 
