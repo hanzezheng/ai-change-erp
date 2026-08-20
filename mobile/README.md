@@ -18,6 +18,17 @@ flutter run \
 
 `API_BASE_URL` 只填 Spring Boot 源站（例如 `http://192.168.1.8:8080`），不要再拼 `/api/v1`，客户端请求路径已包含该前缀。
 
+## 端口与本地栈
+
+推荐拓扑：**Spring Boot `8080`**，**ERPNext `8000`**（见 `backend/README.md`）。
+若本机 ERPNext 已占用 `8080`，可临时把 Spring 起在其它端口（例如 `18082`），
+Emulator 用对应端口：
+
+```bash
+flutter run -d emulator-5554 \
+  --dart-define=API_BASE_URL=http://10.0.2.2:18082
+```
+
 ## Android 本地联调
 
 Android Emulator 访问宿主机 Spring Boot 时使用 `10.0.2.2`（不要使用
@@ -28,6 +39,10 @@ cd mobile
 flutter run -d emulator-5554 \
   --dart-define=API_BASE_URL=http://10.0.2.2:8080
 ```
+
+Cloud / CI 无图形界面的 Emulator 需要 KVM 权限。Linux 上若提示无法使用
+`/dev/kvm`，将用户加入 `kvm` 组后用 `sg kvm -c 'emulator ...'` 启动。
+仅允许**一个** AVD 实例；多实例会导致 adb 长期 `offline`。
 
 真实设备与电脑在同一局域网时，使用电脑的局域网地址，并确保 Spring Boot
 监听该网卡且防火墙放行端口：
@@ -102,6 +117,29 @@ Spring Boot 监听地址，再重试，不要在客户端拼接额外的 `/api/v
 cd mobile
 flutter analyze
 flutter test
+flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8080
 ```
 
 测试使用 Fake Dio，不连接真实 Spring Boot / ERPNext。
+
+## API 黄金路径（无 UI）
+
+在 Spring Boot + PostgreSQL + ERPNext 已启动且种子数据就绪时：
+
+```bash
+export SPRING_BASE=http://127.0.0.1:8080   # 或实际 Spring 端口
+export NONGPI_ENV_FILE=/path/to/local.env  # 含 APP_BOOTSTRAP_LOGIN/PASSWORD
+python3 mobile/scripts/phase41_api_golden_path.py
+```
+
+报告写入 `mobile/artifacts/phase41-golden-path-report.json`（18 步全绿即通过）。
+
+## Emulator UI 黄金路径与截图
+
+```bash
+chmod +x mobile/scripts/emulator_golden_path.sh
+SPRING_PORT=8080 mobile/scripts/emulator_golden_path.sh
+```
+
+按脚本提示完成 `mobile/README.md`「真实黄金路径」手工步骤，每屏执行
+`shot <name>` 保存到 `mobile/artifacts/screenshots/`。

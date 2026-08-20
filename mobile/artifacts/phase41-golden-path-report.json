@@ -1,0 +1,179 @@
+{
+  "base": "http://127.0.0.1:18082",
+  "passed": 18,
+  "total": 18,
+  "failed": [],
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "tenantName": "农批测试档口",
+        "role": "OWNER"
+      }
+    },
+    {
+      "step": "search_customer_han",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "customer": {
+          "customerId": "韩兆亮",
+          "customerName": "韩兆亮",
+          "aliases": [],
+          "phone": "13800003456",
+          "address": "雨润农副产品批发市场 A12, 徐州, China"
+        }
+      }
+    },
+    {
+      "step": "product_apple80",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "itemCode": "APPLE-80",
+        "spec": "80果",
+        "uoms": [
+          "箱",
+          "斤"
+        ]
+      }
+    },
+    {
+      "step": "product_banana_fen",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "itemCode": "BANANA-FEN"
+      }
+    },
+    {
+      "step": "create_draft",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "code": null,
+        "orderId": "SAL-ORD-2026-00013",
+        "orderStatus": "DRAFT",
+        "itemCount": 2,
+        "totalAmount": 2320.0
+      }
+    },
+    {
+      "step": "update_same_draft",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "orderId": "SAL-ORD-2026-00013",
+        "appleQty": 30.0
+      }
+    },
+    {
+      "step": "submit_same_order",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "orderStatus": "SUBMITTED",
+        "paymentStatus": "UNPAID"
+      }
+    },
+    {
+      "step": "payment_summary_before",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "summary": {
+          "orderTotal": 3000.0,
+          "confirmedPaid": 0.0,
+          "remainingToCollect": 3000.0,
+          "paymentStatus": "UNPAID"
+        }
+      }
+    },
+    {
+      "step": "payment_methods",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "count": 1
+      }
+    },
+    {
+      "step": "create_payment_1000",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "paymentId": "ACC-PAY-2026-00017"
+      }
+    },
+    {
+      "step": "confirm_payment_1000",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "paymentStatus": "CONFIRMED"
+      }
+    },
+    {
+      "step": "partial_after_1000",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "summary": {
+          "orderTotal": 3000.0,
+          "confirmedPaid": 1000.0,
+          "remainingToCollect": 2000.0,
+          "paymentStatus": "PARTIAL"
+        }
+      }
+    },
+    {
+      "step": "create_payment_remaining",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "amount": 2000.0
+      }
+    },
+    {
+      "step": "confirm_payment_remaining",
+      "ok": true,
+      "detail": {
+        "http": 200
+      }
+    },
+    {
+      "step": "paid_but_order_not_completed",
+      "ok": true,
+      "detail": {
+        "orderStatus": "SUBMITTED",
+        "paymentStatus": "PAID"
+      }
+    },
+    {
+      "step": "payment_history_by_order",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "count": 2
+      }
+    },
+    {
+      "step": "inventory_apple80",
+      "ok": true,
+      "detail": {
+        "http": 200,
+        "count": 1
+      }
+    },
+    {
+      "step": "logout",
+      "ok": true,
+      "detail": {
+        "http": 204,
+        "code": null
+      }
+    }
+  ]
+}
