@@ -13,6 +13,59 @@
 
 ---
 
+## Windows（WSL2 + Docker Desktop）
+
+在 **WSL2 终端**里操作（不要用 PowerShell 直接跑 `.sh`）。
+
+### 一次性准备
+
+1. 安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/)，Settings → Resources → **WSL Integration** 打开你的发行版。
+2. 安装 WSL 内的 Java 21、Maven（或用仓库 `./mvnw`）、Flutter（跑 App 时需要）。
+3. 把本仓库 clone 到 WSL 文件系统（例如 `~/projects/ai-change-erp`），不要放在 `/mnt/c/` 下跑 Docker 会慢。
+
+### 启动 ERPNext
+
+```bash
+git clone https://github.com/frappe/frappe_docker.git ~/frappe_docker
+cd ~/frappe_docker
+# 推荐改 pwd.yml：frontend ports 为 "8000:8080"
+docker compose -f pwd.yml up -d
+# 等待数分钟直到 site 创建完成
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8000/
+```
+
+若未改端口、ERP 在 **8080**，后面 Spring 用 **18082**，env 里 `ERP_BASE_URL=http://localhost:8080`。
+
+### 一键引导（推荐）
+
+在仓库根目录：
+
+```bash
+bash scripts/wsl-dev.sh
+```
+
+脚本会：ERP 种子数据 → 写 API Key 到 `~/nongpi-local.env` → 起 Spring → 同步 ERP 连接 → 跑 API 黄金路径 18 步。
+
+首次若缺少 `~/nongpi-local.env`，会生成模板，**改好 JWT/密码后重新执行**。
+
+### Flutter（Windows 侧 Android Emulator）
+
+Emulator 在 Windows 跑、Spring 在 WSL 跑时，`10.0.2.2` 指向 Windows 宿主机，**不一定能直达 WSL 里的 Spring**。任选其一：
+
+| 方式 | 做法 |
+|------|------|
+| 全在 WSL | Android SDK + Emulator 也装在 WSL2（需 KVM，Windows 11 部分机型支持） |
+| 端口转发 | WSL 里 `hostname -I` 取 WSL IP，Flutter 用 `http://<WSL_IP>:18082` |
+| 最简单 | Spring 也监听 `0.0.0.0`，Windows 防火墙放行端口，真机/模拟器用 Windows 局域网 IP |
+
+```bash
+cd mobile
+flutter run -d emulator-5554 \
+  --dart-define=API_BASE_URL=http://10.0.2.2:18082
+```
+
+---
+
 ## 1. 仓库结构
 
 ```text
