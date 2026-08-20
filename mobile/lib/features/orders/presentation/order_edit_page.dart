@@ -1,3 +1,4 @@
+import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/utils/decimal_json.dart';
 import '../../../core/utils/money.dart';
 import '../../../core/widgets/app_scaffold.dart';
 import '../../../core/widgets/buttons.dart';
@@ -12,10 +14,61 @@ import '../../../core/widgets/feedback.dart';
 import '../../../core/widgets/transaction_list_row.dart';
 import '../../customers/presentation/customer_selector_sheet.dart';
 import '../../feature_providers.dart';
+import '../../ai/ai_draft_bridge.dart';
 import '../../products/data/product_models.dart';
 import '../../products/presentation/item_editor_sheet.dart';
 import '../../products/presentation/product_selector_sheet.dart';
 import 'order_edit_controller.dart';
+
+class OrderEditSeed {
+  const OrderEditSeed({
+    this.customerId,
+    this.customerName,
+    this.items = const [],
+  });
+
+  final String? customerId;
+  final String? customerName;
+  final List<LocalOrderItem> items;
+
+  factory OrderEditSeed.fromAiPayload(Map<String, dynamic> payload) {
+    final customer = payload['customer'];
+    String? customerId;
+    String? customerName;
+    if (customer is Map) {
+      customerId = customer['customerId']?.toString();
+      customerName = customer['customerName']?.toString();
+    }
+    final itemsRaw = payload['items'];
+    final items = <LocalOrderItem>[];
+    if (itemsRaw is List) {
+      for (final raw in itemsRaw.whereType<Map>()) {
+        final map = Map<String, dynamic>.from(raw);
+        final itemCode = map['itemCode']?.toString() ?? '';
+        if (itemCode.isEmpty) {
+          continue;
+        }
+        final uom = map['uom']?.toString() ?? '';
+        items.add(
+          LocalOrderItem(
+            productId: map['productId']?.toString() ?? itemCode,
+            itemCode: itemCode,
+            productName: map['productName']?.toString() ?? itemCode,
+            spec: map['spec']?.toString(),
+            qty: decimalFromJson(map['qty']),
+            uom: uom.isEmpty ? '箱' : uom,
+            rate: decimalFromJson(map['rate']) ?? Decimal.zero,
+          ),
+        );
+      }
+    }
+    return OrderEditSeed(
+      customerId: customerId,
+      customerName: customerName,
+      items: items,
+    );
+  }
+}
 
 class OrderEditPage extends ConsumerStatefulWidget {
   const OrderEditPage({
@@ -23,11 +76,13 @@ class OrderEditPage extends ConsumerStatefulWidget {
     this.orderId,
     this.customerId,
     this.customerName,
+    this.seed,
   });
 
   final String? orderId;
   final String? customerId;
   final String? customerName;
+  final OrderEditSeed? seed;
 
   @override
   ConsumerState<OrderEditPage> createState() => _OrderEditPageState();
@@ -35,12 +90,14 @@ class OrderEditPage extends ConsumerStatefulWidget {
 
 class _OrderEditPageState extends ConsumerState<OrderEditPage> {
   late final OrderEditController _controller;
+  late final AiDraftBridge _draftBridge;
   var _ready = false;
   String? _loadError;
 
   @override
   void initState() {
     super.initState();
+    _draftBridge = ref.read(aiDraftBridgeProvider);
     _controller = OrderEditController(
       orders: ref.read(orderRepositoryProvider),
       loadLastDeal: ({required customerId, required itemCode, required uom}) {
@@ -49,14 +106,27 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
             .lastDeal(customerId: customerId, itemCode: itemCode, uom: uom);
       },
     );
+    _draftBridge.attach(_controller, () {
+      if (mounted) {
+        setState(() {});
+      }
+    });
     _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _draftBridge.detach(_controller);
+    super.dispose();
   }
 
   Future<void> _bootstrap() async {
     if (widget.orderId == null) {
+      final seed = widget.seed;
       _controller.startNew(
-        customerId: widget.customerId,
-        customerName: widget.customerName,
+        customerId: seed?.customerId ?? widget.customerId,
+        customerName: seed?.customerName ?? widget.customerName,
+        items: seed?.items,
       );
       setState(() => _ready = true);
       return;

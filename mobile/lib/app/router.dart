@@ -64,10 +64,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/orders/new',
-        builder: (context, state) => OrderEditPage(
-          customerId: state.uri.queryParameters['customerId'],
-          customerName: state.uri.queryParameters['customerName'],
-        ),
+        builder: (context, state) {
+          final extra = state.extra;
+          final seed = extra is OrderEditSeed ? extra : null;
+          return OrderEditPage(
+            customerId: state.uri.queryParameters['customerId'] ?? seed?.customerId,
+            customerName: state.uri.queryParameters['customerName'] ?? seed?.customerName,
+            seed: seed,
+          );
+        },
       ),
       GoRoute(
         path: '/orders/collect',

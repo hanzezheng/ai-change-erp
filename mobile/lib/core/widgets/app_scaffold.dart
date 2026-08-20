@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/app_spacing.dart';
+import '../../features/ai/presentation/quick_action_sheet.dart';
 import 'primary_nav.dart';
 
 class AppScaffold extends StatelessWidget {
@@ -91,7 +92,11 @@ class ShellScaffold extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: child,
-      bottomNavigationBar: PrimaryNavBar(currentIndex: currentIndex, onSelect: onSelect),
+      bottomNavigationBar: PrimaryNavBar(
+        currentIndex: currentIndex,
+        onSelect: onSelect,
+        onMicTap: () => showQuickActionSheet(context),
+      ),
     );
   }
 }

@@ -8,9 +8,8 @@
 
 ## 1. 一句话现状
 
-后端 Phase 1–4 已合 `main`。Phase 5（AI）**地基开发中**：分支 `cursor/phase5-ai-foundation-b267`。  
-已具备：`ai-service` FastAPI 内部接口 + Spring `POST /api/v1/ai/actions` + 黄金句启发式解析（Stub Gateway，不绑死 LLM）。  
-**尚未**：真实 ASR Provider、Flutter 麦克风、LLM 正式 Provider、Identity 别名入库。
+**当前闸门已解除。** Phase 5 地基 + Flutter 文字快捷开单/改单已在分支 `cursor/phase5-ai-foundation-b267`。  
+下一步优先：真栈联调 → LLM Gateway → ASR 长按直录。
 
 ---
 
@@ -23,7 +22,7 @@
 | Phase 3 | 订单 Draft/Submit、收款累计 | **已合并 main** | PR #3 |
 | Phase 4 | Flutter 无 AI 经营闭环 | **已合并 main** | `mobile/` |
 | Phase 4.1 | 可靠性收口 + 本地脚本 | **已合并 main** | CORS / WSL / ERP 脚本 |
-| Phase 5 | AI / ASR / Resolver | **进行中（地基）** | `ai-service/` + `backend/.../ai/` |
+| Phase 5 | AI / ASR / Resolver | **进行中** | `ai-service/` + Spring AI + Flutter 快捷操作 |
 | Phase 6 | Identity / Knowledge | **未开始** | — |
 
 长期阶段规划仍以 [`09_DEVELOPMENT_PLAN.md`](09_DEVELOPMENT_PLAN.md) 为准；进度与闸门以本文为准。
@@ -40,15 +39,16 @@
 - 写：多商品 Draft 订单、同单更新、Submit、收款 Draft/Confirm、payment-summary
 - CI：`.github/workflows/backend-test.yml`（Testcontainers，默认不连真 ERP）
 
-### Flutter（main）
+### Flutter（main + Phase5 分支）
 
-- 登录、五槽导航（麦克风 **disabled**，留给 Phase 5）
+- 登录、五槽导航
+- 麦克风短按 → **快捷操作**（文字指令 → `POST /api/v1/ai/actions` → 订单草稿）
 - 订单列表 / Local Edit / Customer·Product·UOM Selector
 - Draft 保存与提交、订单详情、分次收款与补收尾款
 - 客户 / 库存 / 首页 / 更多
-- 单测约 51、`flutter analyze` 干净；Mobile CI 含 debug APK
-- **不直连 ERPNext**，只打 Spring `/api/v1`
+- **不直连 ERPNext / AI Service**，只打 Spring `/api/v1`
 - 本机开发 CORS：允许 `http://localhost:*` / `http://127.0.0.1:*`
+- **尚未**：长按直录 ASR、二级页统一 VoiceController
 
 ### 本地工具（main）
 
@@ -81,10 +81,10 @@ Windows + WSL 常见坑（详见根目录 `README.md`）：
 
 ### P0 — Phase 5 继续
 
-1. 本地起 `ai-service`（`:8090`）+ Spring（`AI_SERVICE_BASE_URL`）联调 `POST /api/v1/ai/actions`
+1. 本地联调：`ai-service:8090` + Spring + Chrome 文字开单 / 改单
 2. 接 OpenAI-compatible Model Gateway（有 Key 时替换 Stub）
-3. Flutter：替换禁用麦克风 → 短按 Quick Action / 长按录音 → 只调 Spring
-4. ASR 真实 Provider（仍经 `/internal/ai/speech/transcribe`）
+3. 长按麦克风直录 + ASR Provider
+4. 二级页（订单编辑等）统一 VoiceController
 
 ### P1 — 收尾
 

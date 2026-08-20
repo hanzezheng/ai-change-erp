@@ -167,10 +167,16 @@ class OrderEditController {
     createIdempotencyKey: _keyFactory(),
   );
 
-  void startNew({String? customerId, String? customerName}) {
+  void startNew({
+    String? customerId,
+    String? customerName,
+    List<LocalOrderItem>? items,
+  }) {
     state = OrderEditState(
       customerId: customerId,
       customerName: customerName,
+      items: items?.map((e) => e.copy()).toList(),
+      dirty: items != null && items.isNotEmpty,
       createIdempotencyKey: _keyFactory(),
     );
   }
