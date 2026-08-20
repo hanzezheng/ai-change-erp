@@ -4,7 +4,7 @@
 #   bash scripts/wsl-dev.sh
 #
 # 可选环境变量：
-#   ERP_CONTAINER   默认 erpnext-backend-1
+#   ERP_CONTAINER   不填则自动识别 *-backend-* 容器
 #   SPRING_PORT     默认 18082（ERP 占 8080 时用此端口）
 #   NONGPI_ENV_FILE 默认 ~/nongpi-local.env
 
@@ -13,7 +13,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${NONGPI_ENV_FILE:-$HOME/nongpi-local.env}"
 SPRING_PORT="${SPRING_PORT:-18082}"
-ERP_CONTAINER="${ERP_CONTAINER:-erpnext-backend-1}"
 JAR="$ROOT/backend/target/nongpi-backend-0.1.0-SNAPSHOT.jar"
 LOG="/tmp/nongpi-${SPRING_PORT}.log"
 PID="/tmp/nongpi-${SPRING_PORT}.pid"
@@ -25,11 +24,11 @@ if ! command -v docker >/dev/null; then
   exit 1
 fi
 
-if ! docker ps --format '{{.Names}}' | grep -qx "$ERP_CONTAINER"; then
-  echo "ERPNext 容器 $ERP_CONTAINER 未运行。" >&2
-  echo "请先在 frappe_docker 目录执行: docker compose -f pwd.yml up -d" >&2
-  exit 1
-fi
+# shellcheck source=erpnext/lib.sh
+source "$ROOT/scripts/erpnext/lib.sh"
+ERP_CONTAINER="$(erp_detect_backend_container)" || exit 1
+export ERP_CONTAINER
+echo ">>> 已识别 ERPNext 容器: $ERP_CONTAINER"
 
 step "1/4 ERPNext 种子数据 + API Key"
 bash "$ROOT/scripts/erpnext/init-dev.sh" | tee /tmp/nongpi-erp-init.log
@@ -98,7 +97,8 @@ curl -sf "http://127.0.0.1:${SPRING_PORT}/actuator/health" >/dev/null || {
 }
 
 step "4/4 同步 ERP 连接 + 跑 API 黄金路径"
-python3 - <<PY
+export ENV_FILE SPRING_PORT
+python3 - <<'PY'
 import json, os, pathlib, urllib.request, urllib.error
 
 def load_env(path):

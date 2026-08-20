@@ -4,20 +4,19 @@
 # 前提：frappe_docker 已 up，site 已创建（pwd.yml 的 create-site 跑完）。
 #
 # 用法（在 ai-change-erp 仓库根目录）：
-#   ERP_CONTAINER=erpnext-backend-1 ./scripts/erpnext/init-dev.sh
+#   bash scripts/erpnext/init-dev.sh
 #
-# 输出里的 APIKEY / APISECRET 写入 ~/nongpi-local.env 的 ERP_API_KEY / ERP_API_SECRET。
+# 可选：ERP_CONTAINER=xxx ERP_SITE=frontend
 
 set -euo pipefail
 
-CONTAINER="${ERP_CONTAINER:-erpnext-backend-1}"
-SITE="${ERP_SITE:-frontend}"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+source "$DIR/lib.sh"
 
-if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-  echo "错误：容器 $CONTAINER 未运行。请先 docker compose -f pwd.yml up -d" >&2
-  exit 1
-fi
+SITE="${ERP_SITE:-frontend}"
+CONTAINER="$(erp_detect_backend_container)" || exit 1
+echo "使用 ERPNext 容器: $CONTAINER (site=$SITE)"
 
 run_console() {
   local script="$1"
@@ -50,7 +49,7 @@ run_console "$DIR/mkkey.py"
 echo ""
 echo "完成。已创建：农批测试档口 / 韩兆亮 / APPLE-80 / BANANA-FEN / 库存与价格"
 echo "Spring env 建议："
-echo "  ERP_BASE_URL=http://localhost:8000   # 若 ERP 映射在 8080 则改为 :8080"
+echo "  ERP_BASE_URL=http://localhost:8080   # 若映射到 8000 则改为 :8000"
 echo "  ERP_SITE_NAME=$SITE"
 echo "  ERP_DEFAULT_COMPANY=农批测试档口"
 echo "  ERP_DEFAULT_WAREHOUSE=Stores - NPT"

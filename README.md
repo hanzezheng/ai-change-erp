@@ -154,7 +154,13 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8000/
 
 ```bash
 chmod +x scripts/erpnext/init-dev.sh
-ERP_CONTAINER=erpnext-backend-1 ./scripts/erpnext/init-dev.sh
+bash scripts/erpnext/init-dev.sh
+```
+
+脚本会**自动识别** backend 容器名（`docker compose` 项目名不同可能是 `frappe_docker-backend-1` 等）。识别失败时先 `docker ps` 查看，再：
+
+```bash
+ERP_CONTAINER=你的容器名 bash scripts/erpnext/init-dev.sh
 ```
 
 脚本会自动：
