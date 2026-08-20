@@ -9,7 +9,8 @@
 ## 1. 一句话现状
 
 后端 Phase 1–3 已进 `main`；Flutter 无 AI 经营闭环（Phase 4）**代码与单测已完成**，在 Draft [PR #4](https://github.com/hanzezheng/ai-change-erp/pull/4)，**尚未合并**。  
-**当前闸门：负责人用真实栈手工验收一条黄金路径 → Ready → Merge。在此之前禁止开始 Phase 5（AI）。**
+负责人已在 Chrome 真栈冒烟通过；API 黄金路径 18/18。  
+**当前闸门：把 PR #4 未提交修复（CORS / init-dev）提交 → Ready → Merge。在此之前禁止开始 Phase 5（AI）。**
 
 ---
 
@@ -62,7 +63,7 @@
 
 | 项 | 说明 |
 |----|------|
-| PR #4 未合 | 负责人尚未完成「App 上点通手工黄金路径」签字 |
+| PR #4 未合 | Chrome 冒烟已过；待提交 CORS + init-dev 修复后 Ready / Merge |
 | Android Emulator | 多数 Windows 机尚未建 AVD；可用 Chrome/Windows 桌面先验收 |
 | 生产部署 | 无正式 Nginx/Compose/发布签名；仅本地开发栈 |
 | Phase 5 | **明确禁止提前开做** |
@@ -78,18 +79,12 @@ Windows + WSL 常见坑（详见根目录 `README.md`）：
 
 ## 5. 下一步（按优先级，禁止跳步）
 
-### P0 — 本周内（关闭 Phase 4）
+### P0 — 立即（关闭 Phase 4）
 
-1. **拉 PR #4 分支**，按根目录 `README.md` 起：PostgreSQL + ERPNext(`:8000`) + Spring(`:8080`) + 种子脚本。
-2. **负责人手工黄金路径**（Chrome 或 Android 均可）：
-   - 登录 → 韩兆亮 → APPLE-80 20箱 + BANANA-FEN 30件 → 存草稿  
-   - 苹果改 30 → 提交 → 收 1000 → 补收尾款 → 已收款且订单仍为已提交  
-   - 库存/客户可读 → 退出  
-3. 判定：
-   - **能用** → PR #4 转 Ready → Merge → 更新本文状态为「Phase 4 已合 main」
-   - **难用** → 最多开 5 条体验修复，仍挂在 Phase 4，不另起「Phase 4.2 大收口」
-   - **打不开** → 只修阻塞，不扩范围
-4. Merge 后：从 `main` 起干净本地拓扑文档冻结（Spring 8080 / ERP 8000）。
+1. ~~真实栈 + Chrome 冒烟~~（已完成；API 18/18 亦通过）
+2. **提交并推送**：Spring CORS（Flutter Web）、`init-dev.sh` CRLF/console 修复、本文验收更新
+3. PR #4 转 **Ready** → CI 绿 → **Merge**
+4. Merge 后：本文第 2 节 Phase 4 改为「已合并 main」；从 `main` 起干净拓扑（Spring 8080 / ERP 8000）
 
 ### P1 — Phase 4 合并之后
 
@@ -125,12 +120,12 @@ Windows + WSL 常见坑（详见根目录 `README.md`）：
 | 日期 | 人 | 环境 | 结果 | 备注 |
 |------|----|------|------|------|
 | 2026-08-20 | Cloud Agent | 真 API 栈 | API 黄金路径 18/18 | Emulator 截图未完成 |
-| | | Windows WSL + ERP `:8000` | 种子脚本已跑通 | Flutter 侧待 Chrome/模拟器验收 |
-| | | | | |
+| 2026-08-20 | 本地接手 | Windows WSL + ERP `:8000` + Spring `:8080` | 种子 / API 18/18 / Spring UP | 补 CORS 后 Chrome 可连 |
+| 2026-08-20 | 负责人 | Flutter Chrome → WSL IP `:8080` | 冒烟通过（点测无明显问题） | 完整 UI 黄金路径未逐项书面勾选 |
 
 **合并判定签字：**
 
-- [ ] 手工黄金路径通过  
+- [x] 手工冒烟通过（Chrome）  
 - [ ] PR #4 Ready + CI 绿  
 - [ ] 已 merge 入 main  
 - [ ] 本文第 2 节 Phase 4 改为「已合并 main」
