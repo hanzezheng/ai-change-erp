@@ -48,6 +48,8 @@ export ERP_DEFAULT_COMPANY=农批测试档口
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
+`LocalSaasBootstrap` 只在该 Tenant **尚无** `erp_connection` 时插入连接。若连接已存在但缺少 `defaultCompany`，创建订单会返回 `ERP_WRITE_CONFIGURATION_INCOMPLETE`；用 OWNER/ADMIN 调用 `PUT /api/v1/erp-connection` 补上公司、价目表和仓库即可，bootstrap 不会自动回填。
+
 生产 schema 只由 Flyway 演进，`ddl-auto=validate`。禁止在 migration 里写默认密码或真实 API Secret。
 
 ## 配置
