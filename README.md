@@ -13,8 +13,8 @@
 | 模块 | 状态 | 说明 |
 |------|------|------|
 | 后端 Phase 1–3 | 已合并 `main` | ERP 读 + SaaS + 订单/收款写 |
-| Flutter Phase 4 | [Draft PR #4](https://github.com/hanzezheng/ai-change-erp/pull/4) | 代码完成，待负责人手工验收后合并 |
-| AI / ASR | 未开始 | Phase 5，**Phase 4 合并前禁止开始** |
+| Flutter Phase 4 | 已合并 `main` | 无 AI 手工经营闭环（含 CORS / 本地脚本） |
+| AI / ASR | 未开始 | Phase 5，可开分支 |
 
 ---
 

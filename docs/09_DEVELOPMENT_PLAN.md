@@ -83,8 +83,7 @@ MVP 限制（本阶段不优化、不引入 Elasticsearch / 本地索引 / Custo
 
 本阶段结束时，不用 AI 必须能完整经营。
 
-状态：**代码在 Draft PR #4**（分支 `cursor/flutter-manual-business-closure-b267`，目录 `mobile/`），**尚未合并 main**。  
-是否「阶段关闭」以 [`10_CURRENT_STATUS.md`](10_CURRENT_STATUS.md) 闸门为准（负责人手工黄金路径签字后再 merge）。麦克风 / AI / ASR 未启用，留待 Phase 5。
+状态：**已合并 main**（原 PR #4 / 分支 `cursor/flutter-manual-business-closure-b267`，目录 `mobile/`）。麦克风 / AI / ASR 未启用，留待 Phase 5。
 
 ### Phase 5：AI / ASR / Resolver
 
