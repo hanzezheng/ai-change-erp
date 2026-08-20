@@ -43,6 +43,10 @@ public enum BusinessErrorCode {
     ERP_VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "ERP 拒绝了该业务数据"),
     UNSUPPORTED_FIELD(HttpStatus.BAD_REQUEST, "当前版本暂不支持该字段"),
     PAYMENT_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "当前版本不支持该收款类型"),
+    AI_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "AI 服务暂时不可用"),
+    ASR_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "语音识别暂时不可用"),
+    CUSTOMER_AMBIGUOUS(HttpStatus.CONFLICT, "客户存在多个合理候选，请选择"),
+    ITEM_AMBIGUOUS(HttpStatus.CONFLICT, "商品存在多个合理候选，请选择"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "服务内部错误");
 
     private final HttpStatus httpStatus;

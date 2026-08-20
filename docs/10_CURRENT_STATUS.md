@@ -1,6 +1,6 @@
 # 10_CURRENT_STATUS.md
 
-版本：1.1  
+版本：1.2  
 更新日期：2026-08-20  
 用途：**任何人接手项目时先读本文**，再按需读 `AGENTS.md` 与其它 docs。
 
@@ -8,9 +8,9 @@
 
 ## 1. 一句话现状
 
-后端 Phase 1–3 与 Flutter Phase 4（无 AI 经营闭环）**均已合并 `main`**（含 [PR #4](https://github.com/hanzezheng/ai-change-erp/pull/4) 内容；本地 merge 提交 `5b2cab5`）。  
-Chrome 冒烟 + API 黄金路径 18/18 已通过；Spring 已支持本机 Flutter Web CORS。  
-**当前闸门已解除：可以开 Phase 5（AI / ASR / Resolver）分支。**
+后端 Phase 1–4 已合 `main`。Phase 5（AI）**地基开发中**：分支 `cursor/phase5-ai-foundation-b267`。  
+已具备：`ai-service` FastAPI 内部接口 + Spring `POST /api/v1/ai/actions` + 黄金句启发式解析（Stub Gateway，不绑死 LLM）。  
+**尚未**：真实 ASR Provider、Flutter 麦克风、LLM 正式 Provider、Identity 别名入库。
 
 ---
 
@@ -21,9 +21,9 @@ Chrome 冒烟 + API 黄金路径 18/18 已通过；Spring 已支持本机 Flutte
 | Phase 1 | ERPNext 主数据只读 | **已合并 main** | `backend/` Adapter |
 | Phase 2 | SaaS / JWT / Tenant / Flyway | **已合并 main** | PR #2 |
 | Phase 3 | 订单 Draft/Submit、收款累计 | **已合并 main** | PR #3 |
-| Phase 4 | Flutter 无 AI 经营闭环 | **已合并 main** | `mobile/`（原 PR #4） |
-| Phase 4.1 | 可靠性收口 + 本地脚本 | **已合并 main** | 分页、Payment draft、WSL/ERP 初始化、CORS |
-| Phase 5 | AI / ASR / Resolver | **未开始（可开）** | — |
+| Phase 4 | Flutter 无 AI 经营闭环 | **已合并 main** | `mobile/` |
+| Phase 4.1 | 可靠性收口 + 本地脚本 | **已合并 main** | CORS / WSL / ERP 脚本 |
+| Phase 5 | AI / ASR / Resolver | **进行中（地基）** | `ai-service/` + `backend/.../ai/` |
 | Phase 6 | Identity / Knowledge | **未开始** | — |
 
 长期阶段规划仍以 [`09_DEVELOPMENT_PLAN.md`](09_DEVELOPMENT_PLAN.md) 为准；进度与闸门以本文为准。
@@ -79,25 +79,23 @@ Windows + WSL 常见坑（详见根目录 `README.md`）：
 
 ## 5. 下一步（按优先级，禁止跳步）
 
-### P0 — 下一步开发（Phase 5）
+### P0 — Phase 5 继续
 
-从 `main` 开分支，按序：
+1. 本地起 `ai-service`（`:8090`）+ Spring（`AI_SERVICE_BASE_URL`）联调 `POST /api/v1/ai/actions`
+2. 接 OpenAI-compatible Model Gateway（有 Key 时替换 Stub）
+3. Flutter：替换禁用麦克风 → 短按 Quick Action / 长按录音 → 只调 Spring
+4. ASR 真实 Provider（仍经 `/internal/ai/speech/transcribe`）
 
-1. Python FastAPI AI Service 骨架 + Model Gateway  
-2. ASR（Voice → Text）接入  
-3. Customer / Product Resolver  
-4. Intent：`create_order` / `update_current_order`（先于其它 Intent）  
-5. Flutter：全局麦克风短按 Quick Action / 长按直录（仍走 Spring，不直连 AI）
+### P1 — 收尾
 
-### P1 — 收尾与加固
-
-1. 可选：Android Studio + AVD 截图  
+1. 可选 Android AVD 截图  
 2. env 模板 `.env.example`（无真实密钥）  
-3. 若 GitHub 上 PR #4 仍显示 Draft/Open：在网页关闭或标记已合并（内容已进 `main`）
+3. GitHub 上若 PR #4 仍 Open：网页关闭
 
 ### P2 — 明确不做（除非产品书面改决策）
 
 - 催款工作流、多 Agent、自研第二套 ERP、K8s MVP、向量库集群
+- Flutter / Python 直连 ERPNext
 
 ---
 

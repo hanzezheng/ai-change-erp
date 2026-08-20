@@ -41,3 +41,7 @@ app:
     refresh-token-ttl: 30d
   credential-encryption:
     key: ${APP_CREDENTIAL_ENCRYPTION_KEY}
+  ai-service:
+    base-url: ${AI_SERVICE_BASE_URL:http://127.0.0.1:8090}
+    connect-timeout: 3s
+    read-timeout: 30s
