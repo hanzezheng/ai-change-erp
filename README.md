@@ -97,13 +97,22 @@ docker compose -f pwd.yml up -d
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8000/
 ```
 
-在 ERPNext 中完成（一次性）：
+**不用手工点 Setup Wizard。** 回到本仓库，一条命令灌入开发数据：
 
-1. 登录 Site（默认 site 名常为 `frontend`）
-2. 创建 Company、仓库、价目表、商品（测试需：`韩兆亮` 客户、`APPLE-80`、`BANANA-FEN`）
-3. 生成 **API Key / API Secret**（User → API Access）
+```bash
+chmod +x scripts/erpnext/init-dev.sh
+ERP_CONTAINER=erpnext-backend-1 ./scripts/erpnext/init-dev.sh
+```
 
-若暂时不改端口、ERP 在 **8080**，则下面 Spring 环境变量里 `ERP_BASE_URL=http://localhost:8080`，且 Spring 需换端口启动（见 4.3）。
+脚本会自动：
+
+1. 跑 ERPNext 官方 Setup Wizard（公司「农批测试档口」、仓库、价目表）——仅首次
+2. 写入黄金路径测试数据：`韩兆亮`、`APPLE-80`、`BANANA-FEN`、价格、库存
+3. 生成 **API Key / Secret**（终端打印 `APIKEY=` / `APISECRET=`，复制到 env 文件）
+
+可重复执行：已有数据会跳过，不会重复建 Company。
+
+若暂时不改端口、ERP 在 **8080**，则 `ERP_BASE_URL=http://localhost:8080`，且 Spring 需换端口启动（见 4.3）。
 
 ### 4.3 Spring Boot
 
