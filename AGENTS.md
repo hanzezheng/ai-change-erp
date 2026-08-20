@@ -112,6 +112,7 @@ AI 的价值：
 
 较大功能开始之前，按以下顺序阅读：
 
+0. `docs/10_CURRENT_STATUS.md`（当前进度、阻塞与闸门；接手必读）
 1. `AGENTS.md`
 2. `docs/01_PRODUCT_VISION.md`
 3. `docs/02_ARCHITECTURE_DECISION.md`
@@ -131,7 +132,7 @@ docs/README.md
 
 只作为导航索引。
 
-不要继续无意义增加大量文档。
+不要继续无意义增加大量文档。状态变更优先更新 `docs/10_CURRENT_STATUS.md`。
 
 ------
 
