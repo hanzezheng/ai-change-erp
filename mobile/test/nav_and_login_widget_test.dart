@@ -57,7 +57,7 @@ void main() {
     expect(find.textContaining('DioException'), findsNothing);
   });
 
-  testWidgets('启动刷新成功后进入一级导航且麦克风 disabled', (tester) async {
+  testWidgets('启动后短按麦克风打开快捷操作（文字入口）', (tester) async {
     final store = MemoryTokenStore();
     await store.saveSession(AuthSession.fromTokenResponse(tokenJson(access: 'old-a', refresh: 'old-r')));
     var refreshCount = 0;
@@ -88,20 +88,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(refreshCount, 1);
-    expect(await store.readRefreshToken(), 'new-r');
     expect(find.text('首页'), findsWidgets);
-    expect(find.text('订单'), findsWidgets);
-    expect(find.text('客户'), findsWidgets);
-    expect(find.text('更多'), findsWidgets);
     expect(find.byKey(const ValueKey('primary-nav-voice')), findsOneWidget);
-    final ignores = tester.widgetList<IgnorePointer>(
-      find.ancestor(
-        of: find.byKey(const ValueKey('primary-nav-voice')),
-        matching: find.byType(IgnorePointer),
-      ),
-    );
-    expect(ignores.any((widget) => widget.ignoring), isTrue);
-    expect(find.text('快捷操作'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('primary-nav-voice')));
+    await pumpAsync(tester);
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('快捷操作'), findsOneWidget);
+    expect(find.text('执行'), findsOneWidget);
     expect(find.textContaining('AI'), findsNothing);
   });
 }

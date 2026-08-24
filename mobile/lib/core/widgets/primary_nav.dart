@@ -9,11 +9,17 @@ class PrimaryNavBar extends StatelessWidget {
     super.key,
     required this.currentIndex,
     required this.onSelect,
+    this.onMicTap,
+    this.onMicLongPressStart,
+    this.onMicLongPressEnd,
   });
 
   /// 0 home, 1 orders, 2 customers, 3 more. Mic is a reserved slot, not an index.
   final int currentIndex;
   final ValueChanged<int> onSelect;
+  final VoidCallback? onMicTap;
+  final VoidCallback? onMicLongPressStart;
+  final VoidCallback? onMicLongPressEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +46,11 @@ class PrimaryNavBar extends StatelessWidget {
             selected: currentIndex == 1,
             onTap: () => onSelect(1),
           ),
-          const _DisabledMicSlot(),
+          _MicSlot(
+            onTap: onMicTap,
+            onLongPressStart: onMicLongPressStart,
+            onLongPressEnd: onMicLongPressEnd,
+          ),
           _NavItem(
             icon: Icons.person_outline,
             selectedIcon: Icons.person,
@@ -101,26 +111,39 @@ class _NavItem extends StatelessWidget {
   }
 }
 
-class _DisabledMicSlot extends StatelessWidget {
-  const _DisabledMicSlot();
+class _MicSlot extends StatelessWidget {
+  const _MicSlot({
+    this.onTap,
+    this.onLongPressStart,
+    this.onLongPressEnd,
+  });
+
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPressStart;
+  final VoidCallback? onLongPressEnd;
 
   @override
   Widget build(BuildContext context) {
-    return const Expanded(
-      child: IgnorePointer(
-        child: Center(
-          child: Padding(
-            padding: EdgeInsets.only(bottom: 4),
-            child: SizedBox(
-              key: ValueKey('primary-nav-voice'),
-              width: 50,
-              height: 50,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: AppColors.avatarFill,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.mic_none, size: 20, color: AppColors.textTertiary),
+    return Expanded(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Material(
+            color: AppColors.primary,
+            shape: const CircleBorder(),
+            child: GestureDetector(
+              key: const ValueKey('primary-nav-voice'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              onLongPressStart:
+                  onLongPressStart == null ? null : (_) => onLongPressStart!(),
+              onLongPressEnd:
+                  onLongPressEnd == null ? null : (_) => onLongPressEnd!(),
+              onLongPressCancel: onLongPressEnd,
+              child: const SizedBox(
+                width: 50,
+                height: 50,
+                child: Icon(Icons.mic, size: 22, color: Colors.white),
               ),
             ),
           ),

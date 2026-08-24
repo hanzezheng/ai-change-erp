@@ -20,5 +20,6 @@
 | [`08_AI_ENGINE_DESIGN.md`](08_AI_ENGINE_DESIGN.md) | AI 引擎（Phase 5+） |
 | [`09_DEVELOPMENT_PLAN.md`](09_DEVELOPMENT_PLAN.md) | 阶段规划与黄金路径 |
 | [`10_CURRENT_STATUS.md`](10_CURRENT_STATUS.md) | **当前进度与下一步** |
+| [`11_MVP_ONEPAGER.md`](11_MVP_ONEPAGER.md) | **MVP 一页纸（取舍 + AI + 记忆 + 无硬件强弱验收）** |
 
-不要无意义新增大量文档；状态变更优先更新 `10_CURRENT_STATUS.md`。
+不要无意义新增大量文档；状态变更优先更新 `10_CURRENT_STATUS.md`；MVP 范围钉子见 `11_MVP_ONEPAGER.md`。

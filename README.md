@@ -14,7 +14,7 @@
 |------|------|------|
 | 后端 Phase 1–3 | 已合并 `main` | ERP 读 + SaaS + 订单/收款写 |
 | Flutter Phase 4 | 已合并 `main` | 无 AI 手工经营闭环（含 CORS / 本地脚本） |
-| AI / ASR | 未开始 | Phase 5，可开分支 |
+| AI / ASR | 进行中 | 分支 `cursor/phase5-ai-foundation-b267`：`ai-service` + `/api/v1/ai/actions` |
 
 ---
 

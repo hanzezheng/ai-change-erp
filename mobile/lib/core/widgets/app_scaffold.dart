@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/app_spacing.dart';
+import '../../features/ai/presentation/quick_action_sheet.dart';
 import 'primary_nav.dart';
 
 class AppScaffold extends StatelessWidget {
@@ -74,7 +76,9 @@ class BusinessActionBar extends StatelessWidget {
   }
 }
 
-class ShellScaffold extends StatelessWidget {
+/// 短按 / 长按均打开文字快捷操作。
+/// 设备 ASR 准确率不足，服务端农批 ASR 未就绪前不做直录。
+class ShellScaffold extends ConsumerWidget {
   const ShellScaffold({
     super.key,
     required this.currentIndex,
@@ -87,11 +91,16 @@ class ShellScaffold extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: child,
-      bottomNavigationBar: PrimaryNavBar(currentIndex: currentIndex, onSelect: onSelect),
+      bottomNavigationBar: PrimaryNavBar(
+        currentIndex: currentIndex,
+        onSelect: onSelect,
+        onMicTap: () => showQuickActionSheet(context),
+        onMicLongPressStart: () => showQuickActionSheet(context),
+      ),
     );
   }
 }

@@ -4,6 +4,10 @@ app:
     secret: test-jwt-hmac-secret-key-32bytes-min
   credential-encryption:
     key: test-credential-master-key-32b!!
+  ai-service:
+    base-url: http://127.0.0.1:8090
+    connect-timeout: 1s
+    read-timeout: 2s
 
 server:
   servlet:
