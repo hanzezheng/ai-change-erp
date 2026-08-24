@@ -1,15 +1,16 @@
 # 10_CURRENT_STATUS.md
 
-版本：1.2  
-更新日期：2026-08-20  
+版本：1.3  
+更新日期：2026-08-24  
 用途：**任何人接手项目时先读本文**，再按需读 `AGENTS.md` 与其它 docs。
 
 ---
 
 ## 1. 一句话现状
 
-**当前闸门已解除。** Phase 5 地基 + Flutter 文字快捷开单/改单已在分支 `cursor/phase5-ai-foundation-b267`。  
-下一步优先：真栈联调 → LLM Gateway → ASR 长按直录。
+**Phase 5 文字黄金路径已在真栈跑通**；订单编辑页可快捷改单；一级导航支持长按设备语音（结果仍走 Spring）。  
+分支 `cursor/phase5-ai-foundation-b267`。  
+下一步：Chrome 验改单 + 长按语音 → 有 Key 时开 Model Gateway → 服务端文件 ASR。
 
 ---
 
@@ -48,16 +49,27 @@
 - 客户 / 库存 / 首页 / 更多
 - **不直连 ERPNext / AI Service**，只打 Spring `/api/v1`
 - 本机开发 CORS：允许 `http://localhost:*` / `http://127.0.0.1:*`
-- **尚未**：长按直录 ASR、二级页统一 VoiceController
+- 订单编辑 / 详情 AppBar 可开快捷操作；一级导航长按设备语音（仍走 Spring）
+- **尚未**：服务端文件 ASR、收款等页统一长按直录
 
-### 本地工具（main）
+### Phase 5（当前分支，未合 main）
+
+- `ai-service/`：FastAPI `/internal/ai/parse-action`、启发式解析、Model Gateway（stub / OpenAI-compatible）
+- Spring：`POST /api/v1/ai/actions` 装配 ERP 客户/商品候选后调 AI；HTTP/1.1 + JSON 字节体
+- Identity 未上线：启发式内置「老韩→韩兆亮」等开发期昵称桥（Phase 6 用 DB 别名替换）
+- Flutter：短按快捷文字；订单编辑/详情 AppBar 麦克风；长按用设备 ASR（`speech_to_text`）→ 仍 POST Spring
+- 真栈冒烟脚本：`scripts/dev/phase5-smoke.sh`（期望 `PHASE5_SMOKE_OK`）
+
+### 本地工具
 
 | 脚本 | 作用 |
 |------|------|
-| `scripts/erpnext/init-dev.sh` | ERPNext Setup Wizard + 黄金路径种子 + API Key（自动识别 backend 容器名） |
+| `scripts/erpnext/init-dev.sh` | ERPNext Setup Wizard + 黄金路径种子 + API Key |
 | `scripts/wsl-dev.sh` | WSL 一键：种子 → env → Spring → API 18 步 |
 | `mobile/scripts/phase41_api_golden_path.py` | 无 UI 的 API 黄金路径验收 |
-
+| `scripts/dev/start-ai.sh` | 启动/重启 ai-service `:8090` |
+| `scripts/dev/rebuild-spring.sh` | `mvn clean package` 后重启 Spring `:8080` |
+| `scripts/dev/phase5-smoke.sh` | Phase5 文字开单 + 改单真栈冒烟 |
 ---
 
 ## 4. 未完成 / 阻塞（接手必看）
@@ -81,10 +93,12 @@ Windows + WSL 常见坑（详见根目录 `README.md`）：
 
 ### P0 — Phase 5 继续
 
-1. 本地联调：`ai-service:8090` + Spring + Chrome 文字开单 / 改单
-2. 接 OpenAI-compatible Model Gateway（有 Key 时替换 Stub）
-3. 长按麦克风直录 + ASR Provider
-4. 二级页（订单编辑等）统一 VoiceController
+1. ~~本地联调：`ai-service:8090` + Spring 文字开单 / 改单~~（API 冒烟已过）
+2. ~~订单编辑页快捷操作入口 + 一级导航长按设备语音骨架~~
+3. Chrome：开单后在编辑页输入「苹果改30箱」验改单；可选长按语音
+4. 有 Key 时：`AI_MODEL_PROVIDER=openai` + `AI_OPENAI_API_KEY` 启用 Gateway（启发式仍优先）
+5. 服务端文件 ASR（Spring 代理上传 → ai-service），替换/补充设备 ASR
+6. 二级页与一级页 Voice 行为完全对齐（详情/收款等）
 
 ### P1 — 收尾
 
@@ -122,6 +136,7 @@ Windows + WSL 常见坑（详见根目录 `README.md`）：
 | 2026-08-20 | 本地接手 | Windows WSL + ERP `:8000` + Spring `:8080` | 种子 / API 18/18 / Spring UP | 补 CORS 后 Chrome 可连 |
 | 2026-08-20 | 负责人 | Flutter Chrome → WSL IP `:8080` | 冒烟通过（点测无明显问题） | 完整 UI 黄金路径未逐项书面勾选 |
 | 2026-08-20 | — | git | Phase 4 已合入 `main`（`5b2cab5`） | 含 CORS / init-dev |
+| 2026-08-24 | 本地 | WSL AI `:8090` + Spring `:8080` + ERP | `phase5-smoke.sh` → `PHASE5_SMOKE_OK` | 开单 READY + 改单 READY |
 
 **合并判定签字：**
 

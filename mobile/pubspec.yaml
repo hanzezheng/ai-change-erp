@@ -41,6 +41,7 @@ dependencies:
   intl: ^0.20.3
   uuid: ^4.6.0
   decimal: ^3.2.6
+  speech_to_text: ^7.3.0
 
 dev_dependencies:
   flutter_test:

@@ -19,6 +19,17 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text or "").lower()
 
 
+# Phase 5：SaaS Customer Identity 未上线前的昵称 / ASR 桥。
+# 仅当候选集中唯一命中正式姓名时预填；多命中仍走歧义。Phase 6 应用 DB 别名替换。
+_CUSTOMER_NAME_HINTS: dict[str, tuple[str, ...]] = {
+    "老韩": ("韩兆亮",),
+    "韩老板": ("韩兆亮",),
+    "亮哥": ("韩兆亮",),
+    "韩照亮": ("韩兆亮",),
+    "韩兆良": ("韩兆良",),
+}
+
+
 def _match_customer(
     expression: str,
     candidates: list[CandidateCustomer],
@@ -31,6 +42,12 @@ def _match_customer(
         names = [_norm(c.customerName), *(_norm(a) for a in c.aliases)]
         if any(expr in n or n in expr for n in names if n):
             hits.append(c)
+    if not hits:
+        for formal in _CUSTOMER_NAME_HINTS.get(expression, ()) or _CUSTOMER_NAME_HINTS.get(expr, ()):
+            formal_n = _norm(formal)
+            for c in candidates:
+                if _norm(c.customerName) == formal_n and c not in hits:
+                    hits.append(c)
     if len(hits) == 1:
         return hits[0], hits
     return None, hits

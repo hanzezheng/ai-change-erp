@@ -97,3 +97,35 @@ def test_customer_ambiguity():
     assert resp.status == "NEED_USER_INPUT"
     assert resp.ambiguities[0].field == "customer"
     assert len(resp.ambiguities[0].candidates) == 2
+
+
+def test_create_order_nickname_hint_without_saas_alias():
+    """Identity 未上线时：候选仅有正式名「韩兆亮」，「老韩」仍应唯一命中。"""
+    req = ParseActionRequest(
+        tenantId="t1",
+        text="老韩80果20箱，粉蕉30件",
+        candidateCustomers=[
+            CandidateCustomer(customerId="韩兆亮", customerName="韩兆亮", aliases=[]),
+        ],
+        candidateProducts=[
+            CandidateProduct(
+                itemCode="APPLE-80",
+                productId="APPLE",
+                productName="苹果80果",
+                spec="80果",
+                aliases=[],
+                allowedUoms=["箱", "斤"],
+            ),
+            CandidateProduct(
+                itemCode="BANANA-FEN",
+                productId="BANANA-FEN",
+                productName="香蕉粉蕉",
+                aliases=[],
+                allowedUoms=["件", "箱"],
+            ),
+        ],
+    )
+    resp = parse_action(req, StubModelGateway())
+    assert resp.status == "READY"
+    assert resp.payload["customer"]["customerId"] == "韩兆亮"
+    assert [i["itemCode"] for i in resp.payload["items"]] == ["APPLE-80", "BANANA-FEN"]

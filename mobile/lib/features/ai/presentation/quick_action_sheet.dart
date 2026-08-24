@@ -145,7 +145,7 @@ class _QuickActionSheetState extends ConsumerState<QuickActionSheet> {
           ),
           const SizedBox(height: 8),
           Text(
-            '语音识别稍后接入；当前先用文字。',
+            '短按文字；长按说话（识别结果走同一开单/改单）。',
             style: AppTextStyles.tertiary,
             textAlign: TextAlign.center,
           ),

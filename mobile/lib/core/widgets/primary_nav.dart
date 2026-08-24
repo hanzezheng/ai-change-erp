@@ -10,12 +10,16 @@ class PrimaryNavBar extends StatelessWidget {
     required this.currentIndex,
     required this.onSelect,
     this.onMicTap,
+    this.onMicLongPressStart,
+    this.onMicLongPressEnd,
   });
 
   /// 0 home, 1 orders, 2 customers, 3 more. Mic is a reserved slot, not an index.
   final int currentIndex;
   final ValueChanged<int> onSelect;
   final VoidCallback? onMicTap;
+  final VoidCallback? onMicLongPressStart;
+  final VoidCallback? onMicLongPressEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +46,11 @@ class PrimaryNavBar extends StatelessWidget {
             selected: currentIndex == 1,
             onTap: () => onSelect(1),
           ),
-          _MicSlot(onTap: onMicTap),
+          _MicSlot(
+            onTap: onMicTap,
+            onLongPressStart: onMicLongPressStart,
+            onLongPressEnd: onMicLongPressEnd,
+          ),
           _NavItem(
             icon: Icons.person_outline,
             selectedIcon: Icons.person,
@@ -104,9 +112,15 @@ class _NavItem extends StatelessWidget {
 }
 
 class _MicSlot extends StatelessWidget {
-  const _MicSlot({this.onTap});
+  const _MicSlot({
+    this.onTap,
+    this.onLongPressStart,
+    this.onLongPressEnd,
+  });
 
   final VoidCallback? onTap;
+  final VoidCallback? onLongPressStart;
+  final VoidCallback? onLongPressEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -117,10 +131,15 @@ class _MicSlot extends StatelessWidget {
           child: Material(
             color: AppColors.primary,
             shape: const CircleBorder(),
-            child: InkWell(
+            child: GestureDetector(
               key: const ValueKey('primary-nav-voice'),
-              customBorder: const CircleBorder(),
+              behavior: HitTestBehavior.opaque,
               onTap: onTap,
+              onLongPressStart:
+                  onLongPressStart == null ? null : (_) => onLongPressStart!(),
+              onLongPressEnd:
+                  onLongPressEnd == null ? null : (_) => onLongPressEnd!(),
+              onLongPressCancel: onLongPressEnd,
               child: const SizedBox(
                 width: 50,
                 height: 50,

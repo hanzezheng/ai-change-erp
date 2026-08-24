@@ -12,6 +12,8 @@ import com.nongpi.assistant.product.domain.AllowedUom;
 import com.nongpi.assistant.product.domain.ProductVariant;
 import com.nongpi.assistant.product.service.ProductService;
 import com.nongpi.assistant.tenant.TenantContextHolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -24,6 +26,8 @@ import java.util.Map;
  */
 @Service
 public class AiActionService {
+
+    private static final Logger log = LoggerFactory.getLogger(AiActionService.class);
 
     private final AiServiceClient aiServiceClient;
     private final CustomerService customerService;
@@ -64,6 +68,7 @@ public class AiActionService {
         try {
             return loadCustomerCandidates();
         } catch (RuntimeException ex) {
+            log.warn("装配 AI 客户候选失败，降级为空列表: {}", ex.toString());
             return List.of();
         }
     }
@@ -72,6 +77,7 @@ public class AiActionService {
         try {
             return loadProductCandidates(customerId);
         } catch (RuntimeException ex) {
+            log.warn("装配 AI 商品候选失败，降级为空列表: {}", ex.toString());
             return List.of();
         }
     }
@@ -82,6 +88,10 @@ public class AiActionService {
                 .content();
         List<Map<String, Object>> out = new ArrayList<>();
         for (CustomerSummary c : page) {
+            if (c.customerId() == null || c.customerId().isBlank()
+                    || c.customerName() == null || c.customerName().isBlank()) {
+                continue;
+            }
             Map<String, Object> row = new HashMap<>();
             row.put("customerId", c.customerId());
             row.put("customerName", c.customerName());
@@ -95,6 +105,10 @@ public class AiActionService {
         List<ProductVariant> variants = productService.selector(null, customerId).results();
         List<Map<String, Object>> out = new ArrayList<>();
         for (ProductVariant p : variants) {
+            if (p.itemCode() == null || p.itemCode().isBlank()
+                    || p.productName() == null || p.productName().isBlank()) {
+                continue;
+            }
             Map<String, Object> row = new HashMap<>();
             row.put("itemCode", p.itemCode());
             row.put("productId", p.productId());

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/app_spacing.dart';
 import '../../features/ai/presentation/quick_action_sheet.dart';
+import '../../features/ai/presentation/voice_session.dart';
 import 'primary_nav.dart';
 
 class AppScaffold extends StatelessWidget {
@@ -75,7 +77,7 @@ class BusinessActionBar extends StatelessWidget {
   }
 }
 
-class ShellScaffold extends StatelessWidget {
+class ShellScaffold extends ConsumerWidget {
   const ShellScaffold({
     super.key,
     required this.currentIndex,
@@ -88,7 +90,8 @@ class ShellScaffold extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final voice = ref.read(voiceSessionProvider);
     return Scaffold(
       backgroundColor: AppColors.background,
       body: child,
@@ -96,6 +99,8 @@ class ShellScaffold extends StatelessWidget {
         currentIndex: currentIndex,
         onSelect: onSelect,
         onMicTap: () => showQuickActionSheet(context),
+        onMicLongPressStart: () => voice.beginHold(context),
+        onMicLongPressEnd: () => voice.endHold(context, ref),
       ),
     );
   }
