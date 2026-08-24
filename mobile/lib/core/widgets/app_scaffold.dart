@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/theme/app_spacing.dart';
 import '../../features/ai/presentation/quick_action_sheet.dart';
-import '../../features/ai/presentation/voice_session.dart';
 import 'primary_nav.dart';
 
 class AppScaffold extends StatelessWidget {
@@ -77,6 +76,8 @@ class BusinessActionBar extends StatelessWidget {
   }
 }
 
+/// 短按 / 长按均打开文字快捷操作。
+/// 设备 ASR 准确率不足，服务端农批 ASR 未就绪前不做直录。
 class ShellScaffold extends ConsumerWidget {
   const ShellScaffold({
     super.key,
@@ -91,7 +92,6 @@ class ShellScaffold extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final voice = ref.read(voiceSessionProvider);
     return Scaffold(
       backgroundColor: AppColors.background,
       body: child,
@@ -99,8 +99,7 @@ class ShellScaffold extends ConsumerWidget {
         currentIndex: currentIndex,
         onSelect: onSelect,
         onMicTap: () => showQuickActionSheet(context),
-        onMicLongPressStart: () => voice.beginHold(context),
-        onMicLongPressEnd: () => voice.endHold(context, ref),
+        onMicLongPressStart: () => showQuickActionSheet(context),
       ),
     );
   }

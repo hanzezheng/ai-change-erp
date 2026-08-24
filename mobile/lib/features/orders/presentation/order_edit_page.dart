@@ -15,7 +15,7 @@ import '../../../core/widgets/transaction_list_row.dart';
 import '../../customers/presentation/customer_selector_sheet.dart';
 import '../../feature_providers.dart';
 import '../../ai/ai_draft_bridge.dart';
-import '../../ai/presentation/quick_action_sheet.dart';
+import '../../ai/presentation/quick_mic_button.dart';
 import '../../products/data/product_models.dart';
 import '../../products/presentation/item_editor_sheet.dart';
 import '../../products/presentation/product_selector_sheet.dart';
@@ -307,13 +307,8 @@ class _OrderEditPageState extends ConsumerState<OrderEditPage> {
       },
       child: AppScaffold(
         title: title,
-        actions: [
-          IconButton(
-            key: const ValueKey('order-edit-quick-action'),
-            tooltip: '快捷操作',
-            icon: const Icon(Icons.mic_none),
-            onPressed: () => showQuickActionSheet(context),
-          ),
+        actions: const [
+          QuickMicButton(key: ValueKey('order-edit-quick-action')),
         ],
         body: ListView(
           children: [

@@ -2,6 +2,7 @@ package com.nongpi.assistant.api;
 
 import com.nongpi.assistant.ai.client.AiServiceClient;
 import com.nongpi.assistant.ai.dto.AiActionResponse;
+import com.nongpi.assistant.ai.dto.AiTranscribeResponse;
 import com.nongpi.assistant.saas.membership.MembershipEntity;
 import com.nongpi.assistant.saas.membership.MembershipRole;
 import com.nongpi.assistant.saas.membership.MembershipStatus;
@@ -14,12 +15,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 
 import java.util.List;
 import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -72,6 +76,28 @@ class AiActionApiTest extends AbstractSaasIntegrationTest {
                 .andExpect(jsonPath("$.actionType").value("CREATE_ORDER"))
                 .andExpect(jsonPath("$.status").value("READY"))
                 .andExpect(jsonPath("$.payload.items[0].itemCode").value("APPLE-80"));
+    }
+
+    @Test
+    @DisplayName("已登录可调用 /api/v1/ai/speech/transcribe")
+    void transcribeReady() throws Exception {
+        TenantEntity tenant = newTenant("农批测试档口", TenantStatus.ACTIVE);
+        AppUserEntity user = newUser("boss2", "correct-password", UserStatus.ACTIVE);
+        MembershipEntity membership = newMembership(tenant, user, MembershipRole.OWNER, MembershipStatus.ACTIVE);
+        newErpConnection(tenant, "http://127.0.0.1:8000", "k", "s");
+
+        when(aiServiceClient.transcribe(any(byte[].class), any()))
+                .thenReturn(new AiTranscribeResponse("老韩80果20箱", "stub+dev_fixed"));
+
+        String token = accessToken(user, membership);
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "a.webm", "audio/webm", new byte[] {1, 2, 3});
+
+        mockMvc.perform(multipart("/api/v1/ai/speech/transcribe")
+                        .file(file)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.text").value("老韩80果20箱"));
     }
 
     @Test

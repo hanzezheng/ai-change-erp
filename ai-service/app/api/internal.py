@@ -5,7 +5,7 @@ from fastapi import APIRouter, File, Form, UploadFile
 from app.asr.transcriber import transcribe_audio
 from app.config import settings
 from app.gateway.model_gateway import build_model_gateway
-from app.intent.heuristic_parser import parse_action
+from app.intent.action_parser import parse_action
 from app.schemas.action import ParseActionRequest, ParseActionResponse, TranscribeResponse
 
 router = APIRouter(prefix="/internal/ai", tags=["internal-ai"])
@@ -22,6 +22,6 @@ async def transcribe_endpoint(
     file: UploadFile | None = File(default=None),
     objectKey: str | None = Form(default=None),
 ) -> TranscribeResponse:
-    _ = file
     _ = objectKey
-    return transcribe_audio(provider=settings.asr_provider)
+    filename = file.filename if file is not None else None
+    return transcribe_audio(provider=settings.asr_provider, filename=filename)

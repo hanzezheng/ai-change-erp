@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     asr_provider: str = "stub"
+    # 仅本地联调：非空时 stub ASR 返回该固定文本（勿用于生产）
+    asr_dev_fixed_text: str = ""
 
 
 settings = Settings()

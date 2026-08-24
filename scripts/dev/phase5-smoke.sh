@@ -21,7 +21,7 @@ TOKEN=$(python3 -c 'import json; print(json.load(open("/tmp/login.json")).get("a
 test -n "$TOKEN"
 
 python3 - "$TOKEN" <<'PY'
-import json, sys, urllib.request
+import json, sys, urllib.error, urllib.request
 
 token = sys.argv[1]
 base = "http://127.0.0.1:8080/api/v1"
@@ -59,31 +59,73 @@ print("create.payload.items", [
     {k: i.get(k) for k in ("itemCode", "qty", "uom")}
     for i in (create.get("payload") or {}).get("items") or []
 ])
-assert create.get("status") == "READY", create
-assert create.get("actionType") == "CREATE_ORDER", create
-items = (create.get("payload") or {}).get("items") or []
-assert [i["itemCode"] for i in items] == ["APPLE-80", "BANANA-FEN"], items
 
-update = api("POST", "/ai/actions", {
-    "inputType": "TEXT",
-    "text": "苹果改30箱",
-    "context": {
-        "currentPage": "ORDER_EDIT",
-        "currentCustomerId": create["payload"]["customer"]["customerId"],
-        "currentCustomerName": create["payload"]["customer"]["customerName"],
-        "currentItems": [
-            {"itemCode": "APPLE-80", "productName": "苹果80果", "qty": 20, "uom": "箱"},
-            {"itemCode": "BANANA-FEN", "productName": "香蕉粉蕉", "qty": 30, "uom": "件"},
-        ],
+# 无 LLM Key 时自然语言不可用：应 FAILED 并引导手动，不得靠规则假装理解成功。
+if create.get("status") == "FAILED" or create.get("code") in {"AI_UNAVAILABLE", "AI_FAILED"}:
+    msg = (create.get("message") or "") + str(create)
+    assert "手动" in msg or create.get("status") == "FAILED", create
+    print("PHASE5_SMOKE_OK (LLM unavailable → manual)")
+else:
+    assert create.get("status") == "READY", create
+    assert create.get("actionType") == "CREATE_ORDER", create
+    items = (create.get("payload") or {}).get("items") or []
+    assert [i["itemCode"] for i in items] == ["APPLE-80", "BANANA-FEN"], items
+
+    update = api("POST", "/ai/actions", {
+        "inputType": "TEXT",
+        "text": "苹果改30箱",
+        "context": {
+            "currentPage": "ORDER_EDIT",
+            "currentCustomerId": create["payload"]["customer"]["customerId"],
+            "currentCustomerName": create["payload"]["customer"]["customerName"],
+            "currentItems": [
+                {"itemCode": "APPLE-80", "productName": "苹果80果", "qty": 20, "uom": "箱"},
+                {"itemCode": "BANANA-FEN", "productName": "香蕉粉蕉", "qty": 30, "uom": "件"},
+            ],
+        },
+    })
+    print("update", {k: update.get(k) for k in ("status", "actionType", "message", "code")})
+    print("update.ops", (update.get("payload") or {}).get("operations"))
+    assert update.get("status") == "READY", update
+    assert update.get("actionType") == "UPDATE_CURRENT_ORDER", update
+    ops = (update.get("payload") or {}).get("operations") or []
+    assert ops and ops[0]["itemCode"] == "APPLE-80" and ops[0]["qty"] == 30, ops
+    print("PHASE5_SMOKE_OK (LLM path)")
+
+# ASR 代理冒烟：无固定文本时允许空→503；有 AI_ASR_DEV_FIXED_TEXT 时应返回文本
+import os
+fixed = os.environ.get("AI_ASR_DEV_FIXED_TEXT", "").strip()
+boundary = "----nongpi"
+body = (
+    f"--{boundary}\r\n"
+    f'Content-Disposition: form-data; name="file"; filename="t.webm"\r\n'
+    f"Content-Type: audio/webm\r\n\r\n"
+    f"fake\r\n"
+    f"--{boundary}--\r\n"
+).encode()
+req = urllib.request.Request(
+    base + "/ai/speech/transcribe",
+    data=body,
+    method="POST",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
     },
-})
-print("update", {k: update.get(k) for k in ("status", "actionType", "message", "code")})
-print("update.ops", (update.get("payload") or {}).get("operations"))
-assert update.get("status") == "READY", update
-assert update.get("actionType") == "UPDATE_CURRENT_ORDER", update
-ops = (update.get("payload") or {}).get("operations") or []
-assert ops and ops[0]["itemCode"] == "APPLE-80" and ops[0]["qty"] == 30, ops
-print("PHASE5_SMOKE_OK")
+)
+try:
+    with urllib.request.urlopen(req) as r:
+        asr = json.load(r)
+        print("asr", asr)
+        if fixed:
+            assert asr.get("text") == fixed, asr
+except urllib.error.HTTPError as e:
+    detail = e.read().decode()
+    print("asr_http", e.code, detail[:200])
+    if fixed:
+        raise
+    assert e.code in (503, 400, 422), (e.code, detail)
+
+print("PHASE5_ASR_PROXY_OK")
 PY
 
 echo "Flutter: cd /d E:\\ai-new-erp\\ai-change-erp\\mobile && flutter run -d chrome --dart-define=API_BASE_URL=http://${WSL_IP}:8080"

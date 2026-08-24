@@ -16,6 +16,7 @@ import '../../../core/widgets/buttons.dart';
 import '../../../core/widgets/feedback.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../feature_providers.dart';
+import '../../ai/presentation/quick_mic_button.dart';
 import '../../orders/data/order_models.dart';
 import '../data/payment_models.dart';
 
@@ -254,6 +255,9 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
         _flowState == _PaymentFlowState.draftSavedAwaitingConfirmation;
     return AppScaffold(
       title: '记录收款',
+      actions: const [
+        QuickMicButton(key: ValueKey('payment-quick-action')),
+      ],
       body: ListView(
         children: [
           ColoredBox(

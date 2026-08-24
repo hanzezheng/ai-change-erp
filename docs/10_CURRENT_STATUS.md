@@ -2,15 +2,16 @@
 
 版本：1.3  
 更新日期：2026-08-24  
-用途：**任何人接手项目时先读本文**，再按需读 `AGENTS.md` 与其它 docs。
+用途：**任何人接手项目时先读本文**，再按需读 `AGENTS.md` 与其它 docs。  
+MVP 范围钉子见 [`11_MVP_ONEPAGER.md`](11_MVP_ONEPAGER.md)（含商户身份记忆五类定稿）。
 
 ---
 
 ## 1. 一句话现状
 
-**Phase 5 文字黄金路径已在真栈跑通**；订单编辑页可快捷改单；一级导航支持长按设备语音（结果仍走 Spring）。  
-分支 `cursor/phase5-ai-foundation-b267`。  
-下一步：Chrome 验改单 + 长按语音 → 有 Key 时开 Model Gateway → 服务端文件 ASR。
+**Phase 5**：自然语言理解 **只走 LLM**（`app/prompts/` + Gateway）。  
+无 Key / stub / 调用失败 → `FAILED`，提示手动开单，**不做启发式假装理解**。  
+分支 `cursor/phase5-ai-foundation-b267`。
 
 ---
 
@@ -49,16 +50,16 @@
 - 客户 / 库存 / 首页 / 更多
 - **不直连 ERPNext / AI Service**，只打 Spring `/api/v1`
 - 本机开发 CORS：允许 `http://localhost:*` / `http://127.0.0.1:*`
-- 订单编辑 / 详情 AppBar 可开快捷操作；一级导航长按设备语音（仍走 Spring）
-- **尚未**：服务端文件 ASR、收款等页统一长按直录
+- 订单编辑 / 详情 / 收款 AppBar 可开快捷操作
+- **暂缓**：ASR 直录（等服务端农批 ASR）
 
 ### Phase 5（当前分支，未合 main）
 
-- `ai-service/`：FastAPI `/internal/ai/parse-action`、启发式解析、Model Gateway（stub / OpenAI-compatible）
-- Spring：`POST /api/v1/ai/actions` 装配 ERP 客户/商品候选后调 AI；HTTP/1.1 + JSON 字节体
-- Identity 未上线：启发式内置「老韩→韩兆亮」等开发期昵称桥（Phase 6 用 DB 别名替换）
-- Flutter：短按快捷文字；订单编辑/详情 AppBar 麦克风；长按用设备 ASR（`speech_to_text`）→ 仍 POST Spring
-- 真栈冒烟脚本：`scripts/dev/phase5-smoke.sh`（期望 `PHASE5_SMOKE_OK`）
+- `ai-service/`：FastAPI `/internal/ai/parse-action`；**仅 LLM**（Prompt + Gateway）；stub 直接 FAILED
+- Spring：`POST /api/v1/ai/actions` 装配候选后调 AI
+- Flutter：快捷操作为自然语言入口；AI 失败则 toast，用户改走手动开单
+- Prompt：`ai-service/app/prompts/parse_action_*.txt`
+- 真栈冒烟：`scripts/dev/phase5-smoke.sh`（无 Key 时期望引导手动；有 Key 时期望 READY）
 
 ### 本地工具
 
@@ -93,12 +94,10 @@ Windows + WSL 常见坑（详见根目录 `README.md`）：
 
 ### P0 — Phase 5 继续
 
-1. ~~本地联调：`ai-service:8090` + Spring 文字开单 / 改单~~（API 冒烟已过）
-2. ~~订单编辑页快捷操作入口 + 一级导航长按设备语音骨架~~
-3. Chrome：开单后在编辑页输入「苹果改30箱」验改单；可选长按语音
-4. 有 Key 时：`AI_MODEL_PROVIDER=openai` + `AI_OPENAI_API_KEY` 启用 Gateway（启发式仍优先）
-5. 服务端文件 ASR（Spring 代理上传 → ai-service），替换/补充设备 ASR
-6. 二级页与一级页 Voice 行为完全对齐（详情/收款等）
+1. ~~去掉启发式；LLM 不可用 → 手动~~  
+2. 配置真实 `AI_OPENAI_API_KEY` 后验自然语言开单/改单  
+3. Chrome：AI 失败提示清晰；手动路径仍完整可用  
+4. ASR 等农批 Provider 就绪后再做  
 
 ### P1 — 收尾
 

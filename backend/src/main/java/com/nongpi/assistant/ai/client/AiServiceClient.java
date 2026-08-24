@@ -5,11 +5,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nongpi.assistant.ai.config.AiServiceProperties;
 import com.nongpi.assistant.ai.dto.AiActionResponse;
+import com.nongpi.assistant.ai.dto.AiTranscribeResponse;
 import com.nongpi.assistant.common.error.BusinessErrorCode;
 import com.nongpi.assistant.common.error.BusinessException;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
@@ -70,6 +74,42 @@ public class AiServiceClient {
             );
         } catch (RestClientException ex) {
             throw new BusinessException(BusinessErrorCode.AI_UNAVAILABLE, "AI 服务暂时不可用", Map.of(), ex);
+        }
+    }
+
+    public AiTranscribeResponse transcribe(byte[] audioBytes, String filename) {
+        try {
+            String safeName = (filename == null || filename.isBlank()) ? "audio.webm" : filename;
+            ByteArrayResource fileResource = new ByteArrayResource(audioBytes) {
+                @Override
+                public String getFilename() {
+                    return safeName;
+                }
+            };
+            MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
+            form.add("file", fileResource);
+            JsonNode node = restClient.post()
+                    .uri("/internal/ai/speech/transcribe")
+                    .contentType(MediaType.MULTIPART_FORM_DATA)
+                    .body(form)
+                    .retrieve()
+                    .body(JsonNode.class);
+            if (node == null) {
+                throw new BusinessException(BusinessErrorCode.ASR_UNAVAILABLE, "ASR 服务返回空响应");
+            }
+            return objectMapper.convertValue(node, AiTranscribeResponse.class);
+        } catch (RestClientResponseException ex) {
+            throw new BusinessException(
+                    BusinessErrorCode.ASR_UNAVAILABLE,
+                    "语音识别暂时不可用",
+                    Map.of(
+                            "aiStatus", ex.getStatusCode().value(),
+                            "aiBody", truncate(ex.getResponseBodyAsString(), 800)
+                    ),
+                    ex
+            );
+        } catch (RestClientException ex) {
+            throw new BusinessException(BusinessErrorCode.ASR_UNAVAILABLE, "语音识别暂时不可用", Map.of(), ex);
         }
     }
 

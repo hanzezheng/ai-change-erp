@@ -145,7 +145,7 @@ class _QuickActionSheetState extends ConsumerState<QuickActionSheet> {
           ),
           const SizedBox(height: 8),
           Text(
-            '短按文字；长按说话（识别结果走同一开单/改单）。',
+            '需配置 LLM 后方可理解指令；不可用时请手动开单。',
             style: AppTextStyles.tertiary,
             textAlign: TextAlign.center,
           ),

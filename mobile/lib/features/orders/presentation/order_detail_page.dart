@@ -16,7 +16,7 @@ import '../../../core/widgets/feedback.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/transaction_list_row.dart';
 import '../../feature_providers.dart';
-import '../../ai/presentation/quick_action_sheet.dart';
+import '../../ai/presentation/quick_mic_button.dart';
 import '../../payments/data/payment_models.dart';
 import '../data/order_models.dart';
 
@@ -412,13 +412,8 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
 
     return AppScaffold(
       title: '订单详情',
-      actions: [
-        IconButton(
-          key: const ValueKey('order-detail-quick-action'),
-          tooltip: '快捷操作',
-          icon: const Icon(Icons.mic_none),
-          onPressed: () => showQuickActionSheet(context),
-        ),
+      actions: const [
+        QuickMicButton(key: ValueKey('order-detail-quick-action')),
       ],
       body: RefreshIndicator(
         color: AppColors.primary,
